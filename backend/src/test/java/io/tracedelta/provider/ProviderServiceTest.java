@@ -171,4 +171,25 @@ class ProviderServiceTest {
 
         assertThat(created.apiKeyMask()).isEqualTo("****");
     }
+
+    @Test
+    void rejectsInvalidMockConfigOrPricingJsonOrBaseUrl() {
+        assertThatThrownBy(() -> providerService.create(new ProviderUpsertRequest(
+                "bad-mock-json", ProviderType.MOCK, null, null, "mock-good", null, "{bad")))
+                .isInstanceOf(BizException.class)
+                .extracting(ex -> ((BizException) ex).getCode())
+                .isEqualTo(ErrorCode.VALIDATION_ERROR);
+
+        assertThatThrownBy(() -> providerService.create(new ProviderUpsertRequest(
+                "bad-pricing", ProviderType.MOCK, null, null, "mock-good", "{bad", null)))
+                .isInstanceOf(BizException.class)
+                .extracting(ex -> ((BizException) ex).getCode())
+                .isEqualTo(ErrorCode.VALIDATION_ERROR);
+
+        assertThatThrownBy(() -> providerService.create(new ProviderUpsertRequest(
+                "bad-url", ProviderType.OPENAI_COMPATIBLE, "ftp://bad", "sk-12345678", "m", null, null)))
+                .isInstanceOf(BizException.class)
+                .extracting(ex -> ((BizException) ex).getCode())
+                .isEqualTo(ErrorCode.VALIDATION_ERROR);
+    }
 }

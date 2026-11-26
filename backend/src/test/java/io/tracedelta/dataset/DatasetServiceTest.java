@@ -95,6 +95,21 @@ class DatasetServiceTest {
     }
 
     @Test
+    void caseInsensitiveAndTrimDuplicateCaseKeyRollsBackWith400ErrorCode() throws Exception {
+        DatasetEntity ds = datasetService.create("ds-dup-ci", "desc");
+        List<DatasetCaseInput> dupBatch = List.of(
+                makeCase("Case-Key-1", "Q1", "A1"),
+                makeCase("case-key-1 ", "Q2", "A2"));
+
+        assertThatThrownBy(() -> datasetService.importVersion(ds.getId(), dupBatch, "ci-dup"))
+                .isInstanceOf(BizException.class)
+                .extracting(ex -> ((BizException) ex).getCode())
+                .isEqualTo(ErrorCode.DUPLICATE_CASE_KEY);
+
+        assertThat(datasetService.listVersions(ds.getId())).isEmpty();
+    }
+
+    @Test
     void emptyBatchIsRejected() {
         DatasetEntity ds = datasetService.create("ds-empty", "desc");
         assertThatThrownBy(() -> datasetService.importVersion(ds.getId(), List.of(), "empty"))

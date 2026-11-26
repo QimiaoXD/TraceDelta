@@ -25,12 +25,15 @@ public class MockLlmClient implements LlmClient {
     @Override
     public LlmResponse chat(ProviderConfigEntity provider, String apiKeyPlain, LlmRequest request) {
         long startNanos = System.nanoTime();
-        MockSettings settings = parseSettings(provider.getMockConfigJson(), provider.getDefaultModel());
+        MockSettings settings;
+        try {
+            settings = parseSettings(provider.getMockConfigJson(), provider.getDefaultModel());
+        } catch (IllegalArgumentException ex) {
+            return LlmResponse.failure(elapsedMs(startNanos), LlmErrorType.MALFORMED_RESPONSE, "Invalid mock configuration");
+        }
         String caseKey = request.caseKey() == null ? "default" : request.caseKey();
 
-        if (settings.profile() == MockProfile.MOCK_SLOW && settings.latencyMs() > 0) {
-            sleepMillis(settings.latencyMs());
-        } else if (settings.profile() != MockProfile.MOCK_SLOW && settings.latencyMs() > 0) {
+        if (settings.latencyMs() > 0) {
             sleepMillis(settings.latencyMs());
         }
 
@@ -83,8 +86,9 @@ public class MockLlmClient implements LlmClient {
         }
         try {
             JsonNode root = objectMapper.readTree(mockConfigJson);
-            String profileRaw = root.hasNonNull("profile") ? root.get("profile").asText() : defaultModel;
-            MockProfile profile = MockProfile.fromName(profileRaw);
+            MockProfile profile = root.hasNonNull("profile")
+                    ? MockProfile.fromName(root.get("profile").asText())
+                    : tryProfile(defaultModel);
             long seed = root.hasNonNull("seed") ? root.get("seed").asLong() : 0L;
             long defaultLatency = profile == MockProfile.MOCK_SLOW ? 2000L : 0L;
             long latencyMs = root.hasNonNull("latencyMs") ? root.get("latencyMs").asLong() : defaultLatency;

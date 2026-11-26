@@ -8,6 +8,7 @@ import io.tracedelta.common.ErrorCode;
 import java.time.LocalDateTime;
 import java.util.HashSet;
 import java.util.List;
+import java.util.Locale;
 import java.util.Set;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.stereotype.Service;
@@ -59,6 +60,15 @@ public class DatasetService {
             throw new BizException(ErrorCode.IMPORT_INVALID, "导入用例列表不能为空");
         }
 
+        Set<String> seenNormalizedKeys = new HashSet<>();
+        for (DatasetCaseInput item : cases) {
+            String normalizedKey = item.caseKey().trim().toLowerCase(Locale.ROOT);
+            if (!seenNormalizedKeys.add(normalizedKey)) {
+                throw new BizException(
+                        ErrorCode.DUPLICATE_CASE_KEY, "导入批次内存在重复的 case_key: " + item.caseKey());
+            }
+        }
+
         DatasetVersionEntity latest = versionMapper.selectOne(
                 new LambdaQueryWrapper<DatasetVersionEntity>()
                         .eq(DatasetVersionEntity::getDatasetId, datasetId)
@@ -78,14 +88,10 @@ public class DatasetService {
             throw new BizException(ErrorCode.IMPORT_INVALID, "版本号冲突，请重试");
         }
 
-        Set<String> seenKeys = new HashSet<>();
         for (DatasetCaseInput item : cases) {
-            if (!seenKeys.add(item.caseKey())) {
-                throw new BizException(ErrorCode.DUPLICATE_CASE_KEY, "导入批次内存在重复的 case_key: " + item.caseKey());
-            }
             DatasetCaseEntity entity = new DatasetCaseEntity();
             entity.setDatasetVersionId(version.getId());
-            entity.setCaseKey(item.caseKey());
+            entity.setCaseKey(item.caseKey().trim());
             entity.setInputJson(writeJson(item.input()));
             entity.setMessagesJson(item.messages() == null ? null : writeJson(item.messages()));
             entity.setReferenceAnswer(item.referenceAnswer());
@@ -93,7 +99,12 @@ public class DatasetService {
             entity.setAssertionsJson(writeJson(item.assertions()));
             entity.setTagsJson(item.tags() == null ? null : writeJson(item.tags()));
             entity.setCaseHash(caseHashCalculator.compute(item));
-            caseMapper.insert(entity);
+            try {
+                caseMapper.insert(entity);
+            } catch (DataIntegrityViolationException ex) {
+                throw new BizException(
+                        ErrorCode.DUPLICATE_CASE_KEY, "导入批次内存在重复的 case_key: " + item.caseKey());
+            }
         }
 
         return version;

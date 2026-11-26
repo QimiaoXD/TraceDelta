@@ -154,4 +154,20 @@ class MockLlmClientTest {
         assertThat(res.inputTokens()).isEqualTo(2);
         assertThat(res.outputTokens()).isEqualTo(3);
     }
+
+    @Test
+    void mockConfigWithoutProfileAndCustomDefaultModelFallsBackToGood() {
+        ProviderConfigEntity provider = mockProvider("{\"seed\":5}", null);
+        provider.setDefaultModel("custom-model-name");
+        LlmResponse res = client.chat(provider, null, req("c1", 1, "hello", Map.of()));
+        assertThat(res.errorType()).isEqualTo(LlmErrorType.NONE);
+        assertThat(res.content()).isEqualTo("[mock] hello");
+    }
+
+    @Test
+    void corruptedMockConfigReturnsFailureInsteadOfThrowing() {
+        ProviderConfigEntity provider = mockProvider("{corrupted-json", null);
+        LlmResponse res = client.chat(provider, null, req("c1", 1, "hello", Map.of()));
+        assertThat(res.errorType()).isEqualTo(LlmErrorType.MALFORMED_RESPONSE);
+    }
 }

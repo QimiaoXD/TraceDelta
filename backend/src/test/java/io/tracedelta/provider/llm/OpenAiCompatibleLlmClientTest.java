@@ -144,4 +144,10 @@ class OpenAiCompatibleLlmClientTest {
             logger.detachAppender(appender);
         }
     }
+
+    @Test
+    void reusesSharedHttpClientAcrossCalls() {
+        assertThat(client.sharedHttpClient()).isNotNull();
+        assertThat(client.sharedHttpClient()).isSameAs(client.sharedHttpClient());
+    }
 }

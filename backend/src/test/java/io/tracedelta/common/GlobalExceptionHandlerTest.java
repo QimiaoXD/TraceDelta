@@ -18,6 +18,7 @@ import org.springframework.context.annotation.Import;
 import org.springframework.http.MediaType;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RestController;
@@ -58,6 +59,24 @@ class GlobalExceptionHandlerTest {
                 .andExpect(content().string(not(containsString("boom"))));
     }
 
+    @Test
+    void handlesMalformedJsonBodyWith400() throws Exception {
+        mockMvc.perform(post("/probe/validate")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{bad-json"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.success").value(false))
+                .andExpect(jsonPath("$.code").value("VALIDATION_ERROR"));
+    }
+
+    @Test
+    void handlesPathTypeMismatchWith400() throws Exception {
+        mockMvc.perform(get("/probe/items/not-a-number"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.success").value(false))
+                .andExpect(jsonPath("$.code").value("VALIDATION_ERROR"));
+    }
+
     record ProbeRequest(@NotBlank String name) {}
 
     @RestController
@@ -70,6 +89,11 @@ class GlobalExceptionHandlerTest {
         @PostMapping("/probe/validate")
         ApiResponse<String> validate(@Valid @RequestBody ProbeRequest req) {
             return ApiResponse.ok(req.name());
+        }
+
+        @GetMapping("/probe/items/{id}")
+        ApiResponse<Long> item(@PathVariable Long id) {
+            return ApiResponse.ok(id);
         }
 
         @GetMapping("/probe/boom")

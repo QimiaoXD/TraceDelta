@@ -3,6 +3,7 @@ package io.tracedelta.provider.llm;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import io.tracedelta.provider.ProviderConfigEntity;
+import jakarta.annotation.PreDestroy;
 import java.math.BigDecimal;
 import java.math.RoundingMode;
 import java.net.SocketTimeoutException;
@@ -30,9 +31,22 @@ public class OpenAiCompatibleLlmClient implements LlmClient {
     private static final BigDecimal ONE_THOUSAND = BigDecimal.valueOf(1000);
 
     private final ObjectMapper objectMapper;
+    private final HttpClient sharedHttpClient;
 
     public OpenAiCompatibleLlmClient(ObjectMapper objectMapper) {
         this.objectMapper = objectMapper;
+        this.sharedHttpClient = HttpClient.newBuilder()
+                .connectTimeout(Duration.ofSeconds(10))
+                .build();
+    }
+
+    HttpClient sharedHttpClient() {
+        return sharedHttpClient;
+    }
+
+    @PreDestroy
+    void closeClient() {
+        sharedHttpClient.close();
     }
 
     @Override
@@ -45,8 +59,8 @@ public class OpenAiCompatibleLlmClient implements LlmClient {
         body.put("model", request.model());
         body.put("messages", toWireMessages(request.messages()));
 
-        try (HttpClient jdkClient = HttpClient.newBuilder().connectTimeout(timeout).build()) {
-            JdkClientHttpRequestFactory factory = new JdkClientHttpRequestFactory(jdkClient);
+        try {
+            JdkClientHttpRequestFactory factory = new JdkClientHttpRequestFactory(sharedHttpClient);
             factory.setReadTimeout(timeout);
             RestClient restClient = RestClient.builder().requestFactory(factory).build();
 
