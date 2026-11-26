@@ -1,0 +1,66 @@
+{
+  "schemaVersion": 2,
+  "generatedAt": "2026-11-27T03:05:00+08:00",
+  "title": "Design System: TraceDelta",
+  "extensions": {
+    "colorMeta": {
+      "zinc-950": {
+        "role": "primary",
+        "displayName": "Zinc 950 (Inverted Primary)",
+        "canonical": "#09090b",
+        "tonalRamp": ["#09090b", "#111114", "#18181b", "#27272a", "#52525b", "#a1a1aa", "#e4e4e7", "#fafafa"]
+      },
+      "status-success": {
+        "role": "semantic",
+        "displayName": "Verified Success",
+        "canonical": "#047857",
+        "tonalRamp": ["#022c22", "#064e3b", "#047857", "#059669", "#34d399", "#6ee7b7", "#a7f3d0", "#ecfdf5"]
+      },
+      "status-warning": {
+        "role": "semantic",
+        "displayName": "Configuration Warning",
+        "canonical": "#b45309",
+        "tonalRamp": ["#451a03", "#78350f", "#b45309", "#d97706", "#f59e0b", "#fbbf24", "#fde68a", "#fffbeb"]
+      },
+      "status-danger": {
+        "role": "semantic",
+        "displayName": "Verified Failure",
+        "canonical": "#be123c",
+        "tonalRamp": ["#4c0519", "#881337", "#be123c", "#e11d48", "#f43f5e", "#fb7185", "#fecdd3", "#fff1f2"]
+      }
+    },
+    "typographyMeta": {
+      "headline": { "displayName": "Page Title", "purpose": "Primary route headings (22px Semibold, -0.025em)." },
+      "title": { "displayName": "Section / Dialog Title", "purpose": "Section headings, dialogs, and drawer headers (15-16px Semibold)." },
+      "body": { "displayName": "Body", "purpose": "Descriptions, table cells, and form labels (14px, 1.5 line-height)." },
+      "label": { "displayName": "Technical Mono", "purpose": "Model names, masked API keys, endpoints, seeds, case_key, SHA-256 hashes, timestamps, latency, and tokens." }
+    },
+    "shadows": [
+      { "name": "overlay", "value": "0 12px 32px -4px rgba(9, 9, 11, 0.1), 0 0 0 1px rgba(228, 228, 231, 0.9)", "purpose": "Dialogs, drawers, and dropdown menus only." }
+    ],
+    "motion": [
+      { "name": "ease", "value": "cubic-bezier(0.2, 0, 0, 1)", "purpose": "Subtle 150ms state feedback transitions respecting prefers-reduced-motion." }
+    ],
+    "breakpoints": [
+      { "name": "mobile", "value": "640px" },
+      { "name": "drawer-nav", "value": "840px" },
+      { "name": "detail-stack", "value": "960px" }
+    ]
+  },
+  "narrative": {
+    "northStar": "Monochrome Precision Console",
+    "overview": "Restrained Zinc developer console focused on verifiable engineering evidence for M1 capabilities with WCAG 2.2 AA contrast across Light, Dark, and System themes.",
+    "keyCharacteristics": [
+      "Zinc neutral luminance hierarchy with 1px borders",
+      "WCAG 2.2 AA contrast (>= 4.5:1) for all useful text in Light and Dark",
+      "Evidence-based status semantics: neutral text badges for types, status colors only for real verified outcomes",
+      "Strict UI sans vs technical monospace split",
+      "Full keyboard navigation and accessible focus management"
+    ],
+    "rules": [
+      { "name": "Evidence-Only Status Colors", "body": "Never draw green health dots or inferred healthy states without a real test response.", "section": "status" },
+      { "name": "Contrast Floor 4.5:1", "body": "Dark muted text must be at least #A1A1AA and light muted text at least #5E5E66 on surface/subtle fills.", "section": "colors" },
+      { "name": "Strict M1 Boundary", "body": "Never expose M2-M5 metrics, fake dashboards, or non-functional navigation in M1.", "section": "scope" }
+    ]
+  }
+}
