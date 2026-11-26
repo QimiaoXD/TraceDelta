@@ -3,7 +3,26 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="color-scheme" content="light dark" />
     <title>TraceDelta — AI 自动化回归评测与链路诊断平台</title>
+    <link
+      rel="icon"
+      type="image/svg+xml"
+      href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='7' fill='%231D4ED8'/%3E%3Cpath d='M16 7L25 23H7L16 7Z' fill='none' stroke='%23FFFFFF' stroke-width='2.2' stroke-linejoin='round'/%3E%3Cpath d='M16 14L20.5 22H11.5L16 14Z' fill='%2393C5FD' opacity='0.85'/%3E%3C/svg%3E"
+    />
+    <script>
+      ;(function () {
+        try {
+          var mode = localStorage.getItem('tracedelta_theme_mode') || 'system'
+          var prefersDark = window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches
+          var resolved = mode === 'dark' || (mode === 'system' && prefersDark) ? 'dark' : 'light'
+          var root = document.documentElement
+          root.dataset.theme = resolved
+          root.classList.toggle('dark', resolved === 'dark')
+          root.style.colorScheme = resolved
+        } catch (e) {}
+      })()
+    </script>
   </head>
   <body>
     <div id="app"></div>
