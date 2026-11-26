@@ -1,7 +1,9 @@
 package io.tracedelta.provider;
 
 import io.tracedelta.common.ApiResponse;
+import io.tracedelta.provider.llm.LlmResponse;
 import jakarta.validation.Valid;
+import jakarta.validation.constraints.NotBlank;
 import java.util.List;
 import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -17,9 +19,11 @@ import org.springframework.web.bind.annotation.RestController;
 public class ProviderController {
 
     private final ProviderService providerService;
+    private final SmokeTestService smokeTestService;
 
-    public ProviderController(ProviderService providerService) {
+    public ProviderController(ProviderService providerService, SmokeTestService smokeTestService) {
         this.providerService = providerService;
+        this.smokeTestService = smokeTestService;
     }
 
     @PostMapping
@@ -43,4 +47,12 @@ public class ProviderController {
         providerService.delete(id);
         return ApiResponse.ok();
     }
+
+    @PostMapping("/{id}/smoke-test")
+    public ApiResponse<LlmResponse> smokeTest(
+            @PathVariable Long id, @Valid @RequestBody SmokeTestRequest request) {
+        return ApiResponse.ok(smokeTestService.run(id, request.prompt(), request.model()));
+    }
+
+    public record SmokeTestRequest(@NotBlank String prompt, String model) {}
 }
