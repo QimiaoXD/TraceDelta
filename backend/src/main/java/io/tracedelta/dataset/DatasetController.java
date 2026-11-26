@@ -4,6 +4,7 @@ import io.tracedelta.common.ApiResponse;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.NotBlank;
 import java.util.List;
+import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
@@ -31,6 +32,12 @@ public class DatasetController {
     @GetMapping
     public ApiResponse<List<DatasetEntity>> list() {
         return ApiResponse.ok(datasetService.list());
+    }
+
+    @DeleteMapping("/{id}")
+    public ApiResponse<Void> delete(@PathVariable Long id) {
+        datasetService.delete(id);
+        return ApiResponse.ok();
     }
 
     @GetMapping("/{id}/versions")

@@ -51,6 +51,24 @@ public class DatasetService {
     }
 
     @Transactional
+    public void delete(Long datasetId) {
+        ensureDatasetExists(datasetId);
+        List<Long> versionIds = versionMapper
+                .selectList(new LambdaQueryWrapper<DatasetVersionEntity>()
+                        .eq(DatasetVersionEntity::getDatasetId, datasetId))
+                .stream()
+                .map(DatasetVersionEntity::getId)
+                .toList();
+        if (!versionIds.isEmpty()) {
+            caseMapper.delete(new LambdaQueryWrapper<DatasetCaseEntity>()
+                    .in(DatasetCaseEntity::getDatasetVersionId, versionIds));
+            versionMapper.delete(new LambdaQueryWrapper<DatasetVersionEntity>()
+                    .eq(DatasetVersionEntity::getDatasetId, datasetId));
+        }
+        datasetMapper.deleteById(datasetId);
+    }
+
+    @Transactional
     public DatasetVersionEntity importVersion(Long datasetId, List<DatasetCaseInput> cases, String note) {
         DatasetEntity dataset = datasetMapper.selectById(datasetId);
         if (dataset == null) {

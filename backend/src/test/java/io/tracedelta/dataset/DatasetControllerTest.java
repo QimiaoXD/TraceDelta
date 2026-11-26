@@ -1,5 +1,6 @@
 package io.tracedelta.dataset;
 
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
@@ -101,6 +102,40 @@ class DatasetControllerTest {
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.success").value(false))
                 .andExpect(jsonPath("$.code").value("DUPLICATE_CASE_KEY"));
+    }
+
+    @Test
+    void deleteDatasetEndpointRemovesDatasetAndReturnsNotFoundAfterwards() throws Exception {
+        String token = loginAsAdmin();
+
+        MvcResult createRes = mockMvc.perform(post("/api/datasets")
+                        .header("Authorization", "Bearer " + token)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"name\":\"api-ds-del\",\"description\":\"temp\"}"))
+                .andExpect(status().isOk())
+                .andReturn();
+        long datasetId = objectMapper.readTree(createRes.getResponse().getContentAsString())
+                .path("data").path("id").asLong();
+
+        String importBody = objectMapper.writeValueAsString(Map.of(
+                "format", "JSONL",
+                "content", "{\"case_key\":\"k1\",\"input\":{\"question\":\"Q1\"}}",
+                "note", "init"));
+        mockMvc.perform(post("/api/datasets/" + datasetId + "/versions/import")
+                        .header("Authorization", "Bearer " + token)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(importBody))
+                .andExpect(status().isOk());
+
+        mockMvc.perform(delete("/api/datasets/" + datasetId)
+                        .header("Authorization", "Bearer " + token))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.success").value(true));
+
+        mockMvc.perform(get("/api/datasets/" + datasetId + "/versions")
+                        .header("Authorization", "Bearer " + token))
+                .andExpect(status().isNotFound())
+                .andExpect(jsonPath("$.code").value("NOT_FOUND"));
     }
 
     @Test

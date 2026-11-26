@@ -136,4 +136,37 @@ class DatasetServiceTest {
         DatasetCaseEntity persisted = datasetService.listCases(ds.getId(), 1).get(0);
         assertThat(persisted.getCaseHash()).isEqualTo(caseHashCalculator.compute(input));
     }
+
+    @Test
+    void deleteDatasetRemovesVersionsAndCasesWithoutAffectingOthers() throws Exception {
+        DatasetEntity target = datasetService.create("ds-to-delete", "temp test");
+        DatasetEntity survivor = datasetService.create("ds-survivor", "keep");
+
+        datasetService.importVersion(target.getId(), List.of(makeCase("t1", "Q1", "A1")), "v1");
+        datasetService.importVersion(target.getId(), List.of(makeCase("t1", "Q1", "A1"), makeCase("t2", "Q2", "A2")), "v2");
+        datasetService.importVersion(survivor.getId(), List.of(makeCase("s1", "QS", "AS")), "v1");
+
+        datasetService.delete(target.getId());
+
+        assertThat(datasetService.list()).extracting(DatasetEntity::getId).doesNotContain(target.getId());
+        assertThatThrownBy(() -> datasetService.listVersions(target.getId()))
+                .isInstanceOf(BizException.class)
+                .extracting(ex -> ((BizException) ex).getCode())
+                .isEqualTo(ErrorCode.NOT_FOUND);
+
+        Integer remainingTargetVersions = jdbcTemplate.queryForObject(
+                "SELECT COUNT(*) FROM dataset_version WHERE dataset_id = ?", Integer.class, target.getId());
+        assertThat(remainingTargetVersions).isZero();
+
+        assertThat(datasetService.listVersions(survivor.getId())).hasSize(1);
+        assertThat(datasetService.listCases(survivor.getId(), 1)).hasSize(1);
+    }
+
+    @Test
+    void deleteUnknownDatasetThrowsNotFound() {
+        assertThatThrownBy(() -> datasetService.delete(888888L))
+                .isInstanceOf(BizException.class)
+                .extracting(ex -> ((BizException) ex).getCode())
+                .isEqualTo(ErrorCode.NOT_FOUND);
+    }
 }
