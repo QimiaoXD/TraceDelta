@@ -1,0 +1,36 @@
+services:
+  mysql:
+    image: mysql:8.0
+    container_name: tracedelta-mysql
+    command: --character-set-server=utf8mb4 --collation-server=utf8mb4_unicode_ci
+    environment:
+      MYSQL_DATABASE: tracedelta
+      MYSQL_USER: ${TRACEDELTA_DB_USER:-tracedelta}
+      MYSQL_PASSWORD: ${TRACEDELTA_DB_PASSWORD:-tracedelta_dev_pass}
+      MYSQL_ROOT_PASSWORD: ${TRACEDELTA_MYSQL_ROOT_PASSWORD:-root_dev_pass}
+    ports:
+      - "3306:3306"
+    volumes:
+      - tracedelta_mysql_data:/var/lib/mysql
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-uroot", "-p${TRACEDELTA_MYSQL_ROOT_PASSWORD:-root_dev_pass}"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
+  redis:
+    image: redis:7-alpine
+    container_name: tracedelta-redis
+    ports:
+      - "6379:6379"
+    volumes:
+      - tracedelta_redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+volumes:
+  tracedelta_mysql_data:
+  tracedelta_redis_data:
