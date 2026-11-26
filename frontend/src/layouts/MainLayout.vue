@@ -1,34 +1,29 @@
 <script setup lang="ts">
-import { computed, ref } from 'vue'
+import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useAuthStore } from '../stores/auth'
+import { useConsoleDataStore } from '../stores/consoleData'
 import TdIcon, { type IconName } from '../components/TdIcon.vue'
 import ThemeSwitcher from '../components/ThemeSwitcher.vue'
 
 const route = useRoute()
 const router = useRouter()
 const auth = useAuthStore()
+const consoleData = useConsoleDataStore()
 
-const collapsed = ref(false)
 const mobileOpen = ref(false)
+const menuTriggerRef = ref<HTMLButtonElement | null>(null)
+const closeDrawerRef = ref<HTMLButtonElement | null>(null)
 
 interface NavItem {
   label: string
-  to?: string
+  to: string
   icon: IconName
-  badge?: string
-  disabled?: boolean
 }
 
-const primaryNav: NavItem[] = [
-  { label: '数据集与版本', to: '/datasets', icon: 'database' },
-  { label: '模型渠道与调试', to: '/providers', icon: 'cpu' },
-]
-
-const roadmapNav: NavItem[] = [
-  { label: '评测调度看板', icon: 'activity', badge: 'M2', disabled: true },
-  { label: '回归对比报告', icon: 'git-compare', badge: 'M4', disabled: true },
-  { label: '质量门禁', icon: 'shield-check', badge: 'M5', disabled: true },
+const navItems: NavItem[] = [
+  { label: '数据集', to: '/datasets', icon: 'database' },
+  { label: '模型渠道', to: '/providers', icon: 'cpu' },
 ]
 
 const activePath = computed(() => {
@@ -36,407 +31,345 @@ const activePath = computed(() => {
   return '/datasets'
 })
 
-const breadcrumbs = computed(() => {
+const nestedCrumb = computed(() => {
   if (route.name === 'dataset-detail') {
-    return [
-      { label: '数据集与版本', to: '/datasets' },
-      { label: `数据集 #${route.params.id}` },
-    ]
+    const id = Number(route.params.id)
+    const meta = consoleData.datasets.find((d) => d.id === id)
+    return {
+      parentLabel: '数据集',
+      parentTo: '/datasets',
+      current: meta ? meta.name : `#${route.params.id}`,
+      currentIsMono: !meta,
+    }
   }
-  if (route.path.startsWith('/providers')) {
-    return [{ label: '模型渠道与调试' }]
-  }
-  return [{ label: '数据集与版本' }]
+  return null
 })
 
 const userInitial = computed(() => (auth.username || 'A').slice(0, 1).toUpperCase())
 
-function navigate(to?: string) {
-  if (!to) return
-  mobileOpen.value = false
-  router.push(to)
+async function openMobileDrawer() {
+  mobileOpen.value = true
+  await nextTick()
+  closeDrawerRef.value?.focus()
 }
 
+async function closeMobileDrawer(restoreFocus = false) {
+  mobileOpen.value = false
+  if (restoreFocus) {
+    await nextTick()
+    menuTriggerRef.value?.focus()
+  }
+}
+
+function onGlobalKeydown(event: KeyboardEvent) {
+  if (event.key === 'Escape' && mobileOpen.value) {
+    event.preventDefault()
+    closeMobileDrawer(true)
+  }
+}
+
+watch(
+  () => route.fullPath,
+  () => {
+    mobileOpen.value = false
+  },
+)
+
 function handleLogout() {
+  consoleData.resetAll()
   auth.logout()
   router.push('/login')
 }
+
+onMounted(() => {
+  window.addEventListener('keydown', onGlobalKeydown)
+})
+
+onBeforeUnmount(() => {
+  window.removeEventListener('keydown', onGlobalKeydown)
+})
 </script>
 
 <template>
-  <div class="shell-root" :class="{ 'is-collapsed': collapsed }">
-    <!-- Mobile backdrop -->
-    <div v-if="mobileOpen" class="mobile-backdrop" @click="mobileOpen = false" />
+  <div class="shell">
+    <a href="#main-content" class="skip-link">跳到主内容</a>
 
-    <!-- Sidebar -->
-    <aside class="shell-aside" :class="{ 'is-mobile-open': mobileOpen }">
-      <div class="aside-brand">
-        <button type="button" class="brand-link" @click="navigate('/datasets')">
-          <span class="brand-mark">
-            <TdIcon name="logo" :size="18" />
+    <div
+      v-if="mobileOpen"
+      class="shell-scrim"
+      aria-hidden="true"
+      @click="closeMobileDrawer(true)"
+    />
+
+    <aside
+      id="primary-sidebar"
+      class="shell-sidebar"
+      :class="{ 'is-open': mobileOpen }"
+      aria-label="应用侧栏"
+    >
+      <div class="sidebar-top">
+        <router-link to="/datasets" class="brand" @click="mobileOpen = false">
+          <span class="brand-mark" aria-hidden="true">
+            <TdIcon name="logo" :size="14" />
           </span>
-          <span v-if="!collapsed" class="brand-text">
-            <span class="brand-name">TraceDelta</span>
-            <span class="brand-ver td-mono">v0.1</span>
-          </span>
-        </button>
+          <span class="brand-name">TraceDelta</span>
+        </router-link>
+
         <button
+          ref="closeDrawerRef"
           type="button"
-          class="mobile-close-btn"
-          aria-label="关闭导航"
-          @click="mobileOpen = false"
+          class="btn btn--icon mobile-close"
+          aria-label="关闭导航菜单"
+          @click="closeMobileDrawer(true)"
         >
-          <TdIcon name="x" :size="16" />
+          <TdIcon name="x" :size="15" />
         </button>
       </div>
 
-      <nav class="aside-nav" aria-label="主导航">
-        <div class="nav-section">
-          <div v-if="!collapsed" class="nav-group-label">工作台</div>
-          <button
-            v-for="item in primaryNav"
-            :key="item.label"
-            type="button"
-            class="nav-item"
-            :class="{ 'is-active': activePath === item.to }"
-            :title="collapsed ? item.label : undefined"
-            @click="navigate(item.to)"
-          >
-            <TdIcon :name="item.icon" :size="16" />
-            <span v-if="!collapsed" class="nav-item-label">{{ item.label }}</span>
-          </button>
-        </div>
-
-        <div class="nav-section">
-          <div v-if="!collapsed" class="nav-group-label">演进规划</div>
-          <div
-            v-for="item in roadmapNav"
-            :key="item.label"
-            class="nav-item is-disabled"
-            :title="`${item.label}（计划于 ${item.badge} 阶段交付）`"
-            aria-disabled="true"
-          >
-            <TdIcon :name="item.icon" :size="16" />
-            <span v-if="!collapsed" class="nav-item-label">{{ item.label }}</span>
-            <span v-if="!collapsed && item.badge" class="nav-badge td-mono">{{ item.badge }}</span>
-          </div>
-        </div>
+      <nav class="sidebar-nav" aria-label="主导航">
+        <router-link
+          v-for="item in navItems"
+          :key="item.to"
+          :to="item.to"
+          class="nav-link"
+          :class="{ 'is-active': activePath === item.to }"
+          :aria-current="activePath === item.to ? 'page' : undefined"
+          @click="mobileOpen = false"
+        >
+          <TdIcon :name="item.icon" :size="15" class="nav-icon" />
+          <span>{{ item.label }}</span>
+        </router-link>
       </nav>
 
-      <div class="aside-footer">
-        <div class="user-row" :title="auth.username || 'admin'">
-          <span class="user-avatar td-mono">{{ userInitial }}</span>
-          <div v-if="!collapsed" class="user-meta">
-            <div class="user-name">{{ auth.username || 'admin' }}</div>
-            <div class="user-role">本地操作员</div>
-          </div>
+      <div class="sidebar-foot">
+        <div class="account-bar">
+          <span class="account-avatar mono" aria-hidden="true">{{ userInitial }}</span>
+          <span class="account-name" :title="auth.username || 'admin'">
+            {{ auth.username || 'admin' }}
+          </span>
           <button
             type="button"
-            class="icon-action-btn"
+            class="btn btn--icon"
             title="退出登录"
             aria-label="退出登录"
             @click="handleLogout"
           >
-            <TdIcon name="logout" :size="15" />
+            <TdIcon name="logout" :size="14" />
           </button>
         </div>
       </div>
     </aside>
 
-    <!-- Main area -->
     <div class="shell-body">
       <header class="shell-topbar">
         <div class="topbar-left">
           <button
+            ref="menuTriggerRef"
             type="button"
-            class="icon-action-btn desktop-collapse-btn"
-            :title="collapsed ? '展开侧边栏' : '收起侧边栏'"
-            :aria-label="collapsed ? '展开侧边栏' : '收起侧边栏'"
-            @click="collapsed = !collapsed"
-          >
-            <TdIcon name="panel-left" :size="16" />
-          </button>
-          <button
-            type="button"
-            class="icon-action-btn mobile-menu-btn"
+            class="btn btn--icon mobile-menu"
             aria-label="打开导航菜单"
-            @click="mobileOpen = true"
+            aria-controls="primary-sidebar"
+            :aria-expanded="mobileOpen"
+            @click="openMobileDrawer"
           >
-            <TdIcon name="menu" :size="17" />
+            <TdIcon name="menu" :size="16" />
           </button>
 
-          <nav class="breadcrumbs" aria-label="面包屑导航">
-            <template v-for="(crumb, idx) in breadcrumbs" :key="crumb.label">
-              <TdIcon v-if="idx > 0" name="chevron-right" :size="14" class="crumb-sep" />
-              <button
-                v-if="crumb.to"
-                type="button"
-                class="crumb-link"
-                @click="navigate(crumb.to)"
-              >
-                {{ crumb.label }}
-              </button>
-              <span v-else class="crumb-current">{{ crumb.label }}</span>
-            </template>
+          <nav v-if="nestedCrumb" class="crumb" aria-label="面包屑">
+            <router-link :to="nestedCrumb.parentTo" class="crumb-link">
+              {{ nestedCrumb.parentLabel }}
+            </router-link>
+            <span class="crumb-sep" aria-hidden="true">/</span>
+            <span
+              class="crumb-cur"
+              :class="{ mono: nestedCrumb.currentIsMono }"
+              :title="nestedCrumb.current"
+            >
+              {{ nestedCrumb.current }}
+            </span>
           </nav>
         </div>
 
-        <div class="topbar-right">
-          <span class="td-pill td-pill--success env-pill">
-            <span class="td-pill-dot" />
-            Mock 就绪
-          </span>
-          <ThemeSwitcher :show-label="true" />
-        </div>
+        <ThemeSwitcher :show-label="true" />
       </header>
 
-      <main class="shell-main">
-        <router-view />
+      <main id="main-content" class="shell-main" tabindex="-1">
+        <div class="shell-container">
+          <router-view />
+        </div>
       </main>
     </div>
   </div>
 </template>
 
 <style scoped>
-.shell-root {
+.skip-link {
+  position: fixed;
+  top: -48px;
+  left: 12px;
+  z-index: 100;
+  padding: 6px 12px;
+  border-radius: var(--radius-sm);
+  background-color: var(--td-primary-bg);
+  color: var(--td-primary-fg);
+  font-size: 13px;
+  font-weight: 500;
+  text-decoration: none;
+}
+
+.skip-link:focus {
+  top: 10px;
+}
+
+.shell {
   display: flex;
   height: 100vh;
   overflow: hidden;
   background-color: var(--td-bg-canvas);
 }
 
-.shell-aside {
-  width: 236px;
+.shell-sidebar {
+  width: 228px;
   flex-shrink: 0;
-  background-color: var(--td-bg-rail);
-  border-right: 1px solid var(--td-border-subtle);
+  background-color: var(--td-bg-sidebar);
+  border-right: 1px solid var(--td-border);
   display: flex;
   flex-direction: column;
-  transition: width var(--td-duration-base) var(--td-ease-out);
   z-index: 30;
 }
 
-.shell-root.is-collapsed .shell-aside {
-  width: 64px;
-}
-
-.aside-brand {
-  height: 52px;
-  padding: 0 14px;
-  border-bottom: 1px solid var(--td-border-subtle);
+.sidebar-top {
+  height: 48px;
+  padding: 0 12px 0 14px;
+  border-bottom: 1px solid var(--td-border);
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 8px;
 }
 
-.brand-link {
-  appearance: none;
-  border: none;
-  background: transparent;
-  padding: 0;
+.brand {
+  text-decoration: none;
   display: inline-flex;
   align-items: center;
-  gap: 10px;
-  cursor: pointer;
+  gap: 9px;
   color: var(--td-text-primary);
-  min-width: 0;
+  border-radius: var(--radius-xs);
 }
 
 .brand-mark {
-  width: 30px;
-  height: 30px;
-  border-radius: var(--td-radius-sm);
-  background-color: var(--td-accent);
-  color: #ffffff;
+  width: 24px;
+  height: 24px;
+  border-radius: var(--radius-sm);
+  background-color: var(--td-primary-bg);
+  color: var(--td-primary-fg);
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  flex-shrink: 0;
-}
-
-html.dark .brand-mark {
-  background-color: #2563eb;
-}
-
-.brand-text {
-  display: inline-flex;
-  align-items: baseline;
-  gap: 6px;
-  white-space: nowrap;
 }
 
 .brand-name {
-  font-size: var(--td-text-md);
+  font-size: 14.5px;
   font-weight: 600;
   letter-spacing: -0.02em;
 }
 
-.brand-ver {
-  font-size: 11px;
-  color: var(--td-text-muted);
-  padding: 1px 5px;
-  border-radius: var(--td-radius-xs);
-  background-color: var(--td-bg-surface);
-  border: 1px solid var(--td-border-subtle);
-}
-
-.aside-nav {
+.sidebar-nav {
   flex: 1;
-  overflow-y: auto;
-  padding: 14px 10px;
-  display: flex;
-  flex-direction: column;
-  gap: 20px;
-}
-
-.nav-section {
+  padding: 12px 10px;
   display: flex;
   flex-direction: column;
   gap: 3px;
 }
 
-.nav-group-label {
-  font-size: 11px;
-  font-weight: 600;
-  color: var(--td-text-muted);
-  padding: 0 10px 6px;
-  letter-spacing: 0.03em;
-}
-
-.nav-item {
-  appearance: none;
+.nav-link {
+  position: relative;
+  text-decoration: none;
   border: 1px solid transparent;
   background: transparent;
   color: var(--td-text-secondary);
-  width: 100%;
   height: 36px;
-  padding: 0 10px;
-  border-radius: var(--td-radius-sm);
+  padding: 0 11px;
+  border-radius: var(--radius-sm);
   display: flex;
   align-items: center;
-  gap: 10px;
-  font-family: inherit;
-  font-size: var(--td-text-sm);
+  gap: 9px;
+  font-size: 13.5px;
   font-weight: 500;
-  cursor: pointer;
-  text-align: left;
-  transition: background-color var(--td-duration-fast) var(--td-ease-out),
-    color var(--td-duration-fast) var(--td-ease-out),
-    border-color var(--td-duration-fast) var(--td-ease-out);
+  transition: background-color var(--dur-fast) var(--ease), color var(--dur-fast) var(--ease);
 }
 
-.shell-root.is-collapsed .nav-item {
-  justify-content: center;
-  padding: 0;
+.nav-icon {
+  color: var(--td-text-secondary);
+  transition: color var(--dur-fast) var(--ease);
 }
 
-.nav-item:hover:not(.is-disabled) {
-  background-color: var(--td-bg-hover);
+.nav-link:hover:not(.is-active) {
+  background-color: var(--td-bg-nav-hover);
   color: var(--td-text-primary);
 }
 
-.nav-item.is-active {
-  background-color: var(--td-bg-surface);
-  border-color: var(--td-border-subtle);
-  color: var(--td-accent);
-  box-shadow: var(--td-shadow-sm);
+.nav-link:hover:not(.is-active) .nav-icon {
+  color: var(--td-text-primary);
 }
 
-.nav-item.is-disabled {
-  opacity: 0.56;
-  cursor: not-allowed;
+.nav-link.is-active {
+  background-color: var(--td-bg-nav-active);
+  border-color: var(--td-border-strong);
+  color: var(--td-text-primary);
+  box-shadow: var(--td-shadow-xs);
 }
 
-.nav-item-label {
-  flex: 1;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+.nav-link.is-active::before {
+  content: '';
+  position: absolute;
+  left: -1px;
+  top: 7px;
+  bottom: 7px;
+  width: 3px;
+  border-radius: 0 2px 2px 0;
+  background-color: var(--td-text-primary);
 }
 
-.nav-badge {
-  font-size: 11px;
-  color: var(--td-text-muted);
-  padding: 1px 5px;
-  border-radius: var(--td-radius-xs);
-  border: 1px solid var(--td-border-subtle);
-  background-color: var(--td-bg-subtle);
+.nav-link.is-active .nav-icon {
+  color: var(--td-text-primary);
 }
 
-.aside-footer {
+.sidebar-foot {
   padding: 10px;
-  border-top: 1px solid var(--td-border-subtle);
+  border-top: 1px solid var(--td-border);
 }
 
-.user-row {
+.account-bar {
   display: flex;
   align-items: center;
-  gap: 10px;
-  padding: 6px 8px;
-  border-radius: var(--td-radius-sm);
-}
-
-.shell-root.is-collapsed .user-row {
-  flex-direction: column;
-  padding: 4px 0;
   gap: 8px;
+  padding: 2px 4px 2px 6px;
 }
 
-.user-avatar {
-  width: 28px;
-  height: 28px;
-  border-radius: var(--td-radius-sm);
-  background-color: var(--td-accent-soft);
-  border: 1px solid var(--td-accent-border);
-  color: var(--td-accent);
-  font-size: var(--td-text-xs);
-  font-weight: 600;
+.account-avatar {
+  width: 24px;
+  height: 24px;
+  border-radius: var(--radius-sm);
+  background-color: var(--td-bg-subtle);
+  border: 1px solid var(--td-border-strong);
+  color: var(--td-text-primary);
+  font-size: 12px;
+  font-weight: 500;
   display: inline-flex;
   align-items: center;
   justify-content: center;
   flex-shrink: 0;
 }
 
-.user-meta {
+.account-name {
   flex: 1;
   min-width: 0;
-}
-
-.user-name {
-  font-size: var(--td-text-sm);
-  font-weight: 600;
-  color: var(--td-text-primary);
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--td-text-secondary);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-}
-
-.user-role {
-  font-size: 11px;
-  color: var(--td-text-muted);
-}
-
-.icon-action-btn {
-  appearance: none;
-  border: 1px solid transparent;
-  background: transparent;
-  color: var(--td-text-muted);
-  width: 30px;
-  height: 30px;
-  border-radius: var(--td-radius-sm);
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  cursor: pointer;
-  flex-shrink: 0;
-  transition: background-color var(--td-duration-fast) var(--td-ease-out),
-    color var(--td-duration-fast) var(--td-ease-out);
-}
-
-.icon-action-btn:hover {
-  background-color: var(--td-bg-hover);
-  color: var(--td-text-primary);
 }
 
 .shell-body {
@@ -448,114 +381,117 @@ html.dark .brand-mark {
 }
 
 .shell-topbar {
-  height: 52px;
+  height: 48px;
   flex-shrink: 0;
   padding: 0 24px;
   background-color: var(--td-bg-surface);
-  border-bottom: 1px solid var(--td-border-subtle);
+  border-bottom: 1px solid var(--td-border);
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 16px;
+  gap: 12px;
 }
 
-.topbar-left,
-.topbar-right {
+.topbar-left {
   display: flex;
   align-items: center;
-  gap: 10px;
+  gap: 8px;
   min-width: 0;
 }
 
-.breadcrumbs {
-  display: flex;
+.crumb {
+  display: inline-flex;
   align-items: center;
   gap: 6px;
-  font-size: var(--td-text-sm);
+  font-size: 13px;
   min-width: 0;
-}
-
-.crumb-sep {
-  color: var(--td-text-muted);
 }
 
 .crumb-link {
-  appearance: none;
-  border: none;
-  background: transparent;
-  padding: 2px 4px;
-  border-radius: var(--td-radius-xs);
+  text-decoration: none;
+  padding: 2px 6px;
+  border-radius: var(--radius-xs);
   color: var(--td-text-secondary);
-  font-family: inherit;
-  font-size: var(--td-text-sm);
-  cursor: pointer;
+  white-space: nowrap;
 }
 
 .crumb-link:hover {
+  background-color: var(--td-bg-subtle);
   color: var(--td-text-primary);
-  background-color: var(--td-bg-hover);
 }
 
-.crumb-current {
-  font-weight: 600;
+.crumb-sep {
+  color: var(--td-text-secondary);
+}
+
+.crumb-cur {
+  font-size: 13px;
+  font-weight: 500;
   color: var(--td-text-primary);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+  max-width: 240px;
 }
 
 .shell-main {
   flex: 1;
   overflow-y: auto;
-  padding: 24px;
+  overflow-x: hidden;
+  padding: 24px 24px 48px;
 }
 
-.mobile-menu-btn,
-.mobile-close-btn,
-.mobile-backdrop {
+.shell-main:focus {
+  outline: none;
+}
+
+.shell-container {
+  width: 100%;
+  max-width: 1280px;
+  margin: 0 auto;
+}
+
+.mobile-menu,
+.mobile-close,
+.shell-scrim {
   display: none;
 }
 
-@media (max-width: 860px) {
-  .desktop-collapse-btn,
-  .env-pill {
-    display: none;
-  }
-
-  .mobile-menu-btn,
-  .mobile-close-btn {
+@media (max-width: 840px) {
+  .mobile-menu,
+  .mobile-close {
     display: inline-flex;
   }
 
-  .mobile-backdrop {
+  .shell-scrim {
     display: block;
     position: fixed;
     inset: 0;
-    background-color: rgba(11, 14, 20, 0.48);
+    background: rgba(0, 0, 0, 0.52);
     z-index: 25;
   }
 
-  .shell-aside {
+  .shell-sidebar {
     position: fixed;
     top: 0;
     left: 0;
     bottom: 0;
-    width: 250px !important;
+    width: 240px;
     transform: translateX(-100%);
-    transition: transform var(--td-duration-base) var(--td-ease-out);
+    transition: transform var(--dur-base) var(--ease);
   }
 
-  .shell-aside.is-mobile-open {
+  .shell-sidebar.is-open {
     transform: translateX(0);
     box-shadow: var(--td-shadow-overlay);
   }
 
   .shell-topbar {
-    padding: 0 14px;
+    padding: 0 12px;
   }
 
   .shell-main {
-    padding: 16px;
+    padding: 18px 14px 36px;
   }
 }
 </style>

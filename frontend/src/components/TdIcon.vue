@@ -27,6 +27,16 @@ export type IconName =
   | 'code'
   | 'refresh'
   | 'panel-left'
+  | 'more-horizontal'
+  | 'globe'
+  | 'key'
+  | 'terminal'
+  | 'clock'
+  | 'alert-circle'
+  | 'alert-triangle'
+  | 'check-circle'
+  | 'chevron-down'
+  | 'info'
 
 withDefaults(
   defineProps<{
@@ -46,7 +56,7 @@ withDefaults(
     viewBox="0 0 24 24"
     fill="none"
     stroke="currentColor"
-    stroke-width="1.75"
+    stroke-width="1.6"
     stroke-linecap="round"
     stroke-linejoin="round"
     aria-hidden="true"
@@ -54,7 +64,7 @@ withDefaults(
   >
     <template v-if="name === 'logo'">
       <path d="M12 3.5L21 19.5H3L12 3.5Z" />
-      <path d="M12 10.5L16 17.5H8L12 10.5Z" fill="currentColor" fill-opacity="0.22" />
+      <path d="M12 10.5L16 17.5H8L12 10.5Z" fill="currentColor" fill-opacity="0.18" />
     </template>
     <template v-else-if="name === 'database'">
       <ellipse cx="12" cy="5" rx="8" ry="3" />
@@ -154,6 +164,46 @@ withDefaults(
     <template v-else-if="name === 'panel-left'">
       <rect x="3" y="4" width="18" height="16" rx="2" />
       <path d="M9 4v16" />
+    </template>
+    <template v-else-if="name === 'more-horizontal'">
+      <circle cx="5" cy="12" r="1.25" fill="currentColor" stroke="none" />
+      <circle cx="12" cy="12" r="1.25" fill="currentColor" stroke="none" />
+      <circle cx="19" cy="12" r="1.25" fill="currentColor" stroke="none" />
+    </template>
+    <template v-else-if="name === 'globe'">
+      <circle cx="12" cy="12" r="9" />
+      <path d="M3 12h18M12 3a14 14 0 0 1 0 18M12 3a14 14 0 0 0 0 18" />
+    </template>
+    <template v-else-if="name === 'key'">
+      <circle cx="7.5" cy="15.5" r="4.5" />
+      <path d="M11 12l9-9M17 6l3 3M14.5 8.5l2.5 2.5" />
+    </template>
+    <template v-else-if="name === 'terminal'">
+      <polyline points="4 17 10 11 4 5" />
+      <line x1="12" y1="19" x2="20" y2="19" />
+    </template>
+    <template v-else-if="name === 'clock'">
+      <circle cx="12" cy="12" r="9" />
+      <path d="M12 7v5l3 2" />
+    </template>
+    <template v-else-if="name === 'alert-circle'">
+      <circle cx="12" cy="12" r="9" />
+      <path d="M12 8v4M12 16h.01" />
+    </template>
+    <template v-else-if="name === 'alert-triangle'">
+      <path d="M10.3 3.9L1.8 18.5a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0Z" />
+      <path d="M12 9v4M12 17h.01" />
+    </template>
+    <template v-else-if="name === 'check-circle'">
+      <circle cx="12" cy="12" r="9" />
+      <path d="M9 12.2l2 2 4.2-4.4" />
+    </template>
+    <template v-else-if="name === 'chevron-down'">
+      <path d="M6 9l6 6 6-6" />
+    </template>
+    <template v-else-if="name === 'info'">
+      <circle cx="12" cy="12" r="9" />
+      <path d="M12 16v-4M12 8h.01" />
     </template>
   </svg>
 </template>

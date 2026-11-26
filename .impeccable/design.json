@@ -1,111 +1,66 @@
 {
   "schemaVersion": 2,
-  "generatedAt": "2026-11-27T01:16:00+08:00",
+  "generatedAt": "2026-11-27T03:05:00+08:00",
   "title": "Design System: TraceDelta",
   "extensions": {
     "colorMeta": {
-      "cobalt-signal": {
+      "zinc-950": {
         "role": "primary",
-        "displayName": "Cobalt Signal",
-        "canonical": "#1d4ed8",
-        "tonalRamp": ["#102359", "#17327d", "#1e40af", "#1d4ed8", "#3b82f6", "#60a5fa", "#bfd4ff", "#eaf1ff"]
+        "displayName": "Zinc 950 (Inverted Primary)",
+        "canonical": "#09090b",
+        "tonalRamp": ["#09090b", "#111114", "#18181b", "#27272a", "#52525b", "#a1a1aa", "#e4e4e7", "#fafafa"]
       },
-      "precision-paper": {
-        "role": "neutral",
-        "displayName": "Precision Paper",
-        "canonical": "#f7f8fa",
-        "tonalRamp": ["#111827", "#344054", "#475467", "#667085", "#98a2b3", "#d6dde8", "#f0f2f6", "#f7f8fa"]
-      },
-      "carbon-canvas": {
-        "role": "neutral",
-        "displayName": "Carbon Canvas",
-        "canonical": "#0b0e14",
-        "tonalRamp": ["#0b0e14", "#0f131c", "#131823", "#181f2d", "#202838", "#3b4965", "#8494ad", "#eef2f8"]
-      },
-      "emerald-pass": {
+      "status-success": {
         "role": "semantic",
-        "displayName": "Emerald Pass",
+        "displayName": "Verified Success",
         "canonical": "#047857",
-        "tonalRamp": ["#022c22", "#064e3b", "#065f46", "#047857", "#10b981", "#34d399", "#a7f3d0", "#ecfdf5"]
+        "tonalRamp": ["#022c22", "#064e3b", "#047857", "#059669", "#34d399", "#6ee7b7", "#a7f3d0", "#ecfdf5"]
+      },
+      "status-warning": {
+        "role": "semantic",
+        "displayName": "Configuration Warning",
+        "canonical": "#b45309",
+        "tonalRamp": ["#451a03", "#78350f", "#b45309", "#d97706", "#f59e0b", "#fbbf24", "#fde68a", "#fffbeb"]
+      },
+      "status-danger": {
+        "role": "semantic",
+        "displayName": "Verified Failure",
+        "canonical": "#be123c",
+        "tonalRamp": ["#4c0519", "#881337", "#be123c", "#e11d48", "#f43f5e", "#fb7185", "#fecdd3", "#fff1f2"]
       }
     },
     "typographyMeta": {
-      "headline": { "displayName": "Page Headline", "purpose": "Primary route headings." },
-      "title": { "displayName": "Section Title", "purpose": "Dialogs, empty states, and rail headers." },
-      "body": { "displayName": "Body", "purpose": "Table cells, prose descriptions, and form copy." },
-      "label": { "displayName": "Mono Data", "purpose": "Case keys, SHA-256 hashes, timestamps, and metrics." }
+      "headline": { "displayName": "Page Title", "purpose": "Primary route headings (22px Semibold, -0.025em)." },
+      "title": { "displayName": "Section / Dialog Title", "purpose": "Section headings, dialogs, and drawer headers (15-16px Semibold)." },
+      "body": { "displayName": "Body", "purpose": "Descriptions, table cells, and form labels (14px, 1.5 line-height)." },
+      "label": { "displayName": "Technical Mono", "purpose": "Model names, masked API keys, endpoints, seeds, case_key, SHA-256 hashes, timestamps, latency, and tokens." }
     },
     "shadows": [
-      { "name": "sm", "value": "0 1px 2px rgba(15, 23, 42, 0.05)", "purpose": "Active segmented button and active nav item lift." },
-      { "name": "overlay", "value": "0 12px 32px rgba(15, 23, 42, 0.12), 0 2px 6px rgba(15, 23, 42, 0.05)", "purpose": "Dialogs, drawers, and popovers." }
+      { "name": "overlay", "value": "0 12px 32px -4px rgba(9, 9, 11, 0.1), 0 0 0 1px rgba(228, 228, 231, 0.9)", "purpose": "Dialogs, drawers, and dropdown menus only." }
     ],
     "motion": [
-      { "name": "ease-out", "value": "cubic-bezier(0.22, 1, 0.36, 1)", "purpose": "Standard interactive state transitions (140ms–200ms)." }
+      { "name": "ease", "value": "cubic-bezier(0.2, 0, 0, 1)", "purpose": "Subtle 150ms state feedback transitions respecting prefers-reduced-motion." }
     ],
     "breakpoints": [
       { "name": "mobile", "value": "640px" },
-      { "name": "drawer-nav", "value": "860px" },
-      { "name": "split-collapse", "value": "980px" }
+      { "name": "drawer-nav", "value": "840px" },
+      { "name": "detail-stack", "value": "960px" }
     ]
   },
-  "components": [
-    {
-      "name": "Primary Button",
-      "kind": "button",
-      "refersTo": "button-primary",
-      "description": "Primary workbench action button.",
-      "html": "<button class=\"ds-btn-primary\">新建数据集</button>",
-      "css": ".ds-btn-primary { background: var(--td-accent, #1d4ed8); color: #ffffff; border: 1px solid var(--td-accent, #1d4ed8); border-radius: 6px; padding: 8px 16px; font-size: 14px; font-weight: 500; cursor: pointer; transition: background-color 140ms cubic-bezier(0.22,1,0.36,1); } .ds-btn-primary:hover { background: var(--td-accent-hover, #1e40af); } .ds-btn-primary:focus-visible { outline: none; box-shadow: 0 0 0 3px rgba(29,78,216,0.22); }"
-    },
-    {
-      "name": "Theme Switcher",
-      "kind": "custom",
-      "description": "Three-way Light / System / Dark segmented control.",
-      "html": "<div class=\"ds-theme-switch\"><button class=\"ds-theme-opt is-active\">浅色</button><button class=\"ds-theme-opt\">自动</button><button class=\"ds-theme-opt\">深色</button></div>",
-      "css": ".ds-theme-switch { display: inline-flex; gap: 2px; padding: 2px; background: var(--td-bg-subtle, #f4f6f9); border: 1px solid var(--td-border-subtle, #e4e8f0); border-radius: 6px; } .ds-theme-opt { border: none; background: transparent; color: var(--td-text-muted, #667085); padding: 4px 10px; font-size: 12px; font-weight: 500; border-radius: 4px; cursor: pointer; } .ds-theme-opt.is-active { background: var(--td-bg-surface, #ffffff); color: var(--td-text-primary, #111827); box-shadow: 0 1px 2px rgba(15,23,42,0.06); }"
-    },
-    {
-      "name": "Status Pill",
-      "kind": "chip",
-      "refersTo": "pill-success",
-      "description": "Semantic status indicator with leading dot.",
-      "html": "<span class=\"ds-pill-success\"><span class=\"ds-dot\"></span>MOCK</span>",
-      "css": ".ds-pill-success { display: inline-flex; align-items: center; gap: 6px; padding: 2px 8px; border-radius: 4px; font-size: 12px; font-weight: 500; color: var(--td-success, #047857); background: var(--td-success-soft, #ecfdf5); border: 1px solid var(--td-success-border, #a7f3d0); font-family: ui-monospace, monospace; } .ds-dot { width: 6px; height: 6px; border-radius: 50%; background: currentColor; }"
-    },
-    {
-      "name": "Hash Copy Chip",
-      "kind": "custom",
-      "description": "Monospace canonical case_hash chip with copy affordance.",
-      "html": "<button class=\"ds-hash-chip\">9f8c2a1e</button>",
-      "css": ".ds-hash-chip { border: 1px solid var(--td-border-subtle, #e4e8f0); background: var(--td-bg-subtle, #f4f6f9); color: var(--td-text-secondary, #475467); border-radius: 4px; padding: 2px 8px; font-size: 12px; font-family: ui-monospace, monospace; cursor: pointer; } .ds-hash-chip:hover { border-color: var(--td-accent-border, #bfd4ff); color: var(--td-accent, #1d4ed8); }"
-    }
-  ],
   "narrative": {
-    "northStar": "The Precision Bench",
-    "overview": "TraceDelta is built as a calibrated engineering bench for evaluating and diagnosing AI applications. Both Light (Precision Paper) and Dark (Carbon Bench) themes are first-class citizens, paired with live prefers-color-scheme system synchronization.",
+    "northStar": "Monochrome Precision Console",
+    "overview": "Restrained Zinc developer console focused on verifiable engineering evidence for M1 capabilities with WCAG 2.2 AA contrast across Light, Dark, and System themes.",
     "keyCharacteristics": [
-      "Dual first-class Light, Dark, and System-following theme architecture",
-      "Flat hairline-bordered work surfaces on distinct neutral planes",
-      "Single restrained Cobalt Signal accent reserved for primary actions and focus",
-      "Tabular monospace alignment on keys, hashes, timestamps, and telemetry",
-      "Unified 1.75px stroke inline SVG icon library"
+      "Zinc neutral luminance hierarchy with 1px borders",
+      "WCAG 2.2 AA contrast (>= 4.5:1) for all useful text in Light and Dark",
+      "Evidence-based status semantics: neutral text badges for types, status colors only for real verified outcomes",
+      "Strict UI sans vs technical monospace split",
+      "Full keyboard navigation and accessible focus management"
     ],
     "rules": [
-      { "name": "The One Voice Rule", "body": "Cobalt Signal appears on <= 10% of any viewport—only primary actions, current selection, and focus states.", "section": "colors" },
-      { "name": "The Honest Mono Rule", "body": "Use monospace strictly for code, JSON, hashes, keys, and numeric measurements.", "section": "typography" },
-      { "name": "The Flat-By-Default Rule", "body": "Never nest cards inside cards; tables and toolbars share one hairline-bordered surface.", "section": "elevation" }
-    ],
-    "dos": [
-      "Do declare every color through --td-* CSS custom properties so Light and Dark modes stay synchronized automatically.",
-      "Do pair every data table with skeleton loading, actionable empty states, and filtered empty states.",
-      "Do use td-mono and tabular-nums for case_key, case_hash, latency (ms), token counts, and timestamps.",
-      "Do keep transitions crisp (140ms-200ms) and bound strictly to state feedback."
-    ],
-    "donts": [
-      "Don't hardcode hex colors inside Vue components or mix Element Plus default blue with custom palette accents.",
-      "Don't place eyebrow/kicker labels above page headings or nest el-card inside another card.",
-      "Don't use emoji or raw Unicode arrows in place of TdIcon.vue SVG icons.",
-      "Don't use gradient text, zero-offset neon glows, or decorative glassmorphism on Operate workbenches."
+      { "name": "Evidence-Only Status Colors", "body": "Never draw green health dots or inferred healthy states without a real test response.", "section": "status" },
+      { "name": "Contrast Floor 4.5:1", "body": "Dark muted text must be at least #A1A1AA and light muted text at least #5E5E66 on surface/subtle fills.", "section": "colors" },
+      { "name": "Strict M1 Boundary", "body": "Never expose M2-M5 metrics, fake dashboards, or non-functional navigation in M1.", "section": "scope" }
     ]
   }
 }

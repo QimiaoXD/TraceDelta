@@ -4,11 +4,9 @@ import TdIcon, { type IconName } from './TdIcon.vue'
 
 withDefaults(
   defineProps<{
-    compact?: boolean
     showLabel?: boolean
   }>(),
   {
-    compact: false,
     showLabel: false,
   },
 )
@@ -16,79 +14,91 @@ withDefaults(
 const theme = useThemeStore()
 
 const options: Array<{ value: ThemeMode; label: string; title: string; icon: IconName }> = [
-  { value: 'light', label: '浅色', title: '切换为浅色模式', icon: 'sun' },
-  { value: 'system', label: '自动', title: '跟随设备系统主题', icon: 'monitor' },
-  { value: 'dark', label: '深色', title: '切换为深色模式', icon: 'moon' },
+  { value: 'light', label: '浅色', title: '浅色模式', icon: 'sun' },
+  { value: 'system', label: '自动', title: '跟随系统主题', icon: 'monitor' },
+  { value: 'dark', label: '深色', title: '深色模式', icon: 'moon' },
 ]
+
+function onKeydown(event: KeyboardEvent, index: number) {
+  let nextIdx = -1
+  if (event.key === 'ArrowRight' || event.key === 'ArrowDown') {
+    nextIdx = (index + 1) % options.length
+  } else if (event.key === 'ArrowLeft' || event.key === 'ArrowUp') {
+    nextIdx = (index - 1 + options.length) % options.length
+  }
+  if (nextIdx >= 0) {
+    event.preventDefault()
+    theme.setMode(options[nextIdx].value)
+    const parent = (event.currentTarget as HTMLElement)?.parentElement
+    const buttons = parent?.querySelectorAll<HTMLButtonElement>('[role="radio"]')
+    buttons?.[nextIdx]?.focus()
+  }
+}
 </script>
 
 <template>
-  <div
-    class="theme-switcher"
-    :class="{ 'theme-switcher--compact': compact }"
-    role="group"
-    aria-label="外观主题切换"
-  >
+  <div class="theme-switch" role="radiogroup" aria-label="外观主题">
     <button
-      v-for="opt in options"
+      v-for="(opt, idx) in options"
       :key="opt.value"
       type="button"
-      class="theme-btn"
+      role="radio"
+      class="theme-opt"
       :class="{ 'is-active': theme.mode === opt.value }"
+      :tabindex="theme.mode === opt.value ? 0 : -1"
       :title="opt.title"
       :aria-label="opt.title"
-      :aria-pressed="theme.mode === opt.value"
+      :aria-checked="theme.mode === opt.value"
       @click="theme.setMode(opt.value)"
+      @keydown="onKeydown($event, idx)"
     >
-      <TdIcon :name="opt.icon" :size="14" />
-      <span v-if="showLabel" class="theme-btn-label">{{ opt.label }}</span>
+      <TdIcon :name="opt.icon" :size="13" />
+      <span v-if="showLabel">{{ opt.label }}</span>
     </button>
   </div>
 </template>
 
 <style scoped>
-.theme-switcher {
+.theme-switch {
   display: inline-flex;
   align-items: center;
+  height: 30px;
   padding: 2px;
   gap: 2px;
+  border-radius: var(--radius-sm);
   background-color: var(--td-bg-subtle);
-  border: 1px solid var(--td-border-subtle);
-  border-radius: var(--td-radius-sm);
+  border: 1px solid var(--td-border);
 }
 
-.theme-btn {
+.theme-opt {
   appearance: none;
-  border: none;
+  border: 1px solid transparent;
   background: transparent;
-  color: var(--td-text-muted);
+  color: var(--td-text-secondary);
+  height: 24px;
+  padding: 0 8px;
+  border-radius: var(--radius-xs);
+  font-family: inherit;
+  font-size: 12px;
+  font-weight: 500;
   display: inline-flex;
   align-items: center;
-  justify-content: center;
-  gap: 5px;
-  height: 26px;
-  padding: 0 8px;
-  border-radius: var(--td-radius-xs);
-  font-family: inherit;
-  font-size: var(--td-text-xs);
-  font-weight: 500;
+  gap: 4px;
   cursor: pointer;
-  transition: background-color var(--td-duration-fast) var(--td-ease-out),
-    color var(--td-duration-fast) var(--td-ease-out),
-    box-shadow var(--td-duration-fast) var(--td-ease-out);
+  white-space: nowrap;
+  transition: background-color var(--dur-fast) var(--ease),
+    color var(--dur-fast) var(--ease),
+    border-color var(--dur-fast) var(--ease);
 }
 
-.theme-switcher--compact .theme-btn {
-  padding: 0 7px;
-}
-
-.theme-btn:hover {
+.theme-opt:hover {
   color: var(--td-text-primary);
 }
 
-.theme-btn.is-active {
+.theme-opt.is-active {
   background-color: var(--td-bg-surface);
   color: var(--td-text-primary);
-  box-shadow: var(--td-shadow-sm);
+  border-color: var(--td-border-strong);
+  box-shadow: var(--td-shadow-xs);
 }
 </style>

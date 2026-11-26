@@ -1,176 +1,102 @@
 ---
 name: TraceDelta
-description: Precision Light & Dark workbench design system for automated LLM regression testing and trace diagnostics.
-colors:
-  cobalt-signal: "#1d4ed8"
-  cobalt-signal-hover: "#1e40af"
-  cobalt-dark-signal: "#5b9bff"
-  precision-paper: "#f7f8fa"
-  paper-rail: "#f0f2f6"
-  pure-surface: "#ffffff"
-  hairline-light: "#e4e8f0"
-  ink-primary: "#111827"
-  ink-secondary: "#475467"
-  carbon-canvas: "#0b0e14"
-  carbon-rail: "#0f131c"
-  carbon-surface: "#131823"
-  hairline-dark: "#202838"
-  chalk-primary: "#eef2f8"
-  chalk-secondary: "#a8b5c9"
-  emerald-pass: "#047857"
-  emerald-pass-dark: "#34d399"
-  amber-warn: "#b45309"
-  crimson-fail: "#be123c"
-typography:
-  headline:
-    fontFamily: "-apple-system, BlinkMacSystemFont, 'SF Pro Text', 'PingFang SC', 'Noto Sans SC', sans-serif"
-    fontSize: "1.25rem"
-    fontWeight: 600
-    lineHeight: 1.3
-    letterSpacing: "-0.02em"
-  title:
-    fontFamily: "-apple-system, BlinkMacSystemFont, 'SF Pro Text', 'PingFang SC', 'Noto Sans SC', sans-serif"
-    fontSize: "0.9375rem"
-    fontWeight: 600
-    lineHeight: 1.4
-  body:
-    fontFamily: "-apple-system, BlinkMacSystemFont, 'SF Pro Text', 'PingFang SC', 'Noto Sans SC', sans-serif"
-    fontSize: "0.875rem"
-    fontWeight: 400
-    lineHeight: 1.5
-  label:
-    fontFamily: "'JetBrains Mono', 'SF Mono', ui-monospace, SFMono-Regular, Menlo, monospace"
-    fontSize: "0.75rem"
-    fontWeight: 500
-    lineHeight: 1.5
-rounded:
-  xs: "4px"
-  sm: "6px"
-  md: "8px"
-  lg: "12px"
-spacing:
-  xs: "4px"
-  sm: "8px"
-  md: "16px"
-  lg: "24px"
-components:
-  button-primary:
-    backgroundColor: "{colors.cobalt-signal}"
-    textColor: "{colors.pure-surface}"
-    rounded: "{rounded.sm}"
-    padding: "8px 16px"
-  button-primary-hover:
-    backgroundColor: "{colors.cobalt-signal-hover}"
-  surface-panel:
-    backgroundColor: "{colors.pure-surface}"
-    rounded: "{rounded.md}"
-  pill-success:
-    backgroundColor: "#ecfdf5"
-    textColor: "{colors.emerald-pass}"
-    rounded: "{rounded.xs}"
-    padding: "2px 8px"
+description: 面向 M1 已实现能力的克制型开发者控制台设计规范
+status: active
+source: 2026-11-27 修订版（同步真实仓库实现与 WCAG 2.2 AA 实测对比度）
 ---
 
-# Design System: TraceDelta
+# TraceDelta 设计规范
 
-## Overview
+## 1. 产品与设计边界
 
-**Creative North Star: "The Precision Bench"**
+TraceDelta 是单机优先的 Java AI 应用验证工作台。本版界面只呈现已实现的 M1：登录、不可变数据集版本及 JSON/JSONL/CSV 导入、模型渠道配置、四种确定性 Mock 和单次冒烟测试。M2–M5 的调度、Trace/Span、回归分析、质量门禁、性能统计均不以可用导航、状态或演示数字出现。
 
-TraceDelta is built as a calibrated engineering bench for evaluating and diagnosing AI applications. Every screen serves an Operate workflow: engineers scanning dataset snapshots, verifying canonical SHA-256 hashes, configuring encrypted model providers, and inspecting smoke-test telemetry. The interface stays quiet, border-defined, and high-contrast so that real data—diffs, assertions, latency numbers, and execution traces—carries the visual weight.
+视觉原则是 **Monochrome Precision Console**，操作原则是 **可核实的工程证据**。延续 Zinc 中性色、细边框、等宽技术元数据与克制动效；借鉴成熟开发者工具的信息层级，并遵守 Apple HIG 强调的清晰反馈与平台可用性。品牌识别来自版本快照、哈希、Mock 配置和明确的测试结果，而非装饰色。
 
-Both Light ("Precision Paper") and Dark ("Carbon Bench") themes are first-class citizens, paired with live `prefers-color-scheme` system synchronization and a pre-hydration `<head>` script that prevents flash-of-wrong-theme on reload. Visual hierarchy relies on subtle tonal layering (rail vs. canvas vs. surface) and crisp 1px hairlines rather than drop shadows or decorative gradients.
+技术边界：Vue 3 + TypeScript + Vite + Pinia + Vue Router + Element Plus；保留既有路由、API 契约、数据结构和 Light/Dark/System 三态主题。界面文案为简体中文，保留 `case_key`、`case_hash`、`JSONL`、`Mock`、`API Key` 等标准技术词。
 
-**Key Characteristics:**
-- Dual first-class Light, Dark, and System-following (`light | system | dark`) theme architecture.
-- Flat, hairline-bordered work surfaces (`--td-bg-surface`) resting on a cooler canvas (`--td-bg-canvas`) and side rail (`--td-bg-rail`).
-- Single restrained Cobalt Signal accent reserved strictly for primary actions, active navigation, and keyboard focus rings.
-- Tabular monospace alignment (`font-variant-numeric: tabular-nums`) on all IDs, hashes, version numbers, latencies, token counts, and timestamps.
-- Unified 1.75px stroke inline SVG icon library (`TdIcon.vue`) with zero emoji or glyph substitutions.
+## 2. 设计令牌
 
-## Colors
+### 2.1 色彩与文字
 
-A restrained neutral workbench anchored by one Cobalt Signal accent and four calibrated semantic states across Light and Dark modes.
+| 语义 | Light | Dark | 用途 |
+| --- | --- | --- | --- |
+| `--td-bg-sidebar` | `#FAFAFA` | `#09090B` | 导航背景 |
+| `--td-bg-canvas` | `#F4F4F5` | `#0C0C0E` | 工作区背景 |
+| `--td-bg-surface` | `#FFFFFF` | `#111114` | 列表、表格、表单表面 |
+| `--td-bg-elevated` | `#FFFFFF` | `#18181B` | 弹窗、抽屉 |
+| `--td-bg-subtle` | `#F4F4F5` | `#18181B` | 输入槽、代码区域、表头 |
+| `--td-text-primary` | `#09090B` | `#FAFAFA` | 标题、主值 |
+| `--td-text-secondary` | `#52525B` | `#A1A1AA` | 正文说明、标签、时间、表头、重要元数据 |
+| `--td-text-muted` | `#5E5E66` | `#A1A1AA` | 辅助提示与占位符（在 `#F4F4F5` 与 `#18181B` 上均 ≥ 5.9:1） |
+| `--td-border` | `#E4E4E7` | `#27272A` | 1px 分割线 |
+| `--td-border-strong` | `#D4D4D8` | `#52525B` | 控件轮廓与悬停 |
+| `--td-focus` | `#18181B` | `#E4E4E7` | 2px 可见焦点环 |
+| `--td-primary-bg` / `--td-primary-fg` | `#09090B` / `#FAFAFA` | `#FAFAFA` / `#09090B` | 主操作 |
 
-### Primary
-- **Cobalt Signal** (`#1d4ed8` light / `#5b9bff` dark): Primary action buttons, active navigation indicators, interactive hash copy hover states, and keyboard focus rings.
+深色表面上的旧弱文本 `#71717A` 对比度不足以承载有用信息（在 `#18181B` 上仅 3.67:1），故深色 `--td-text-muted` 提升到 `#A1A1AA`（6.9:1），浅色 `--td-text-muted` 调整为 `#5E5E66`（在 `#FFFFFF` 上 6.5:1，在 `#F4F4F5` 上 5.9:1），确保有用文字、表头、时间、帮助说明与占位符均达到 WCAG 2.2 AA 4.5:1。
 
-### Neutral
-- **Precision Paper** (`#f7f8fa`) & **Carbon Canvas** (`#0b0e14`): Main viewport backdrop behind data containers.
-- **Paper Rail** (`#f0f2f6`) & **Carbon Rail** (`#0f131c`): Sidebar navigation and split-login technical showcase layer.
-- **Pure Surface** (`#ffffff`) & **Carbon Surface** (`#131823`): Data tables, toolbars, version rails, and form containers.
-- **Hairline Borders** (`#e4e8f0` light / `#202838` dark): Structural separation across layout shells and table rows.
-- **Ink & Chalk Text** (`#111827` / `#475467` light; `#eef2f8` / `#a8b5c9` dark): Guarantees ≥ 4.5:1 body contrast in both themes.
+状态色只用于有来源的结果：
+- 成功：文本 `#047857`（Light，5.48:1）/ `#34D399`（Dark，10.2:1），图标/点 `#059669` / `#34D399`
+- 警告：文本 `#B45309`（Light，5.02:1）/ `#FBBF24`（Dark，11.5:1）
+- 失败：文本 `#BE123C`（Light，6.26:1）/ `#FB7185`（Dark，6.9:1）
 
-### Semantic States
-- **Emerald Pass** (`#047857` light / `#34d399` dark): `MOCK` provider availability, `SUCCEEDED` smoke tests, verified snapshots.
-- **Amber Warn** (`#b45309` light / `#fbbf24` dark): Slow latency or flaky fault-injection warnings.
-- **Crimson Fail** (`#be123c` light / `#fb7185` dark): Destructive actions, failed calls, and validation alerts.
+每处状态都附文字与图标/形状，不只靠颜色。没有真实状态数据时不画状态圆点。
 
-**The One Voice Rule.** Cobalt Signal appears on ≤ 10% of any viewport—only primary actions, current selection, and focus states. Never use it as decorative fill.
+### 2.2 字体、间距与形状
 
-## Typography
+- UI 字体：`Geist, Inter, -apple-system, BlinkMacSystemFont, PingFang SC, Noto Sans SC, sans-serif`。中文自然语言不得强制等宽。
+- 技术元数据：`Geist Mono, JetBrains Mono, ui-monospace, SFMono-Regular, Menlo, monospace`，启用 `font-variant-numeric: tabular-nums`。适用于 `case_key`、`case_hash`、版本号、时间、Endpoint、模型名、Seed、JSON、耗时和密钥掩码。
+- 页面标题 22px/600，区块标题 15–16px/600，正文 14px/400–500，表头与辅助信息至少 12px 且满足实际对比度。中文正文保持舒适行高 1.5。
+- 间距使用 4/8/12/16/20/24px，页头与内容间约 20–24px。按钮 32–36px 高，输入框至少 34px；密集表格行 44–48px，保持足够点击目标与键盘焦点。
+- 圆角：微标签 4px、按钮/输入 6px、数据面板 8px、弹窗 10px。常规卡片无投影，浮层使用克制阴影和清晰边框。动效约 150ms；尊重 `prefers-reduced-motion`。
 
-**Body & UI Font:** System sans stack (`-apple-system`, `SF Pro Text`, `PingFang SC`, `Noto Sans SC`, `Segoe UI`, sans-serif) for crisp CJK + Latin legibility without font-loading jank.
-**Data / Code Font:** `JetBrains Mono`, `SF Mono`, `ui-monospace`, `Menlo`, monospace.
+## 3. 信息架构与布局
 
-**Character:** Compact, fixed-rem Operate hierarchy (1.15–1.2 scale ratio) that balances dense data tables with clean breathing room in dialogs and drawers.
+当前导航只包含已实现的“数据集”和“模型渠道”。登录后 App Shell 使用 228px 侧栏、48px 顶栏、最大 1280px 的内容区。页面标题、操作按钮、筛选和数据区域形成稳定次序；大量空白时也不拉伸单条记录来填满宽度。窄屏侧栏变抽屉，表格可在自身容器横向滚动，整页不得溢出。详情页在窄屏将版本侧栏折叠为顶部选择器。
 
-### Hierarchy
-- **Headline** (`600`, `1.25rem` / `20px`, `1.3` line-height, `-0.02em` tracking): Page titles (`td-page-title`).
-- **Title** (`600`, `0.9375rem` / `15px`, `1.4` line-height): Section titles, dialog headers, empty-state headings.
-- **Body** (`400`, `0.875rem` / `14px`, `1.5` line-height, max `68ch` for prose): Table content, form labels, descriptions.
-- **Label / Mono** (`500`, `0.75rem` / `12px`, `1.5` line-height, `tabular-nums`): `case_key`, SHA-256 hashes, timestamps, version badges, latency/token metrics.
+### 3.1 登录
 
-**The Honest Mono Rule.** Use monospace strictly for code, JSON, hashes, keys, and numeric measurements—never as decorative styling for prose headings.
+品牌名下用一行准确的 M1 定位文案；居中表单保留清晰标签、错误提示和主按钮。`.env`/环境变量提示仅在本地开发模式（`import.meta.env.DEV`）出现且不展示密码值，正式构建完全移除。登录中禁重复提交；认证失败给不泄露账户存在性的可修复反馈。三态主题切换可键盘操作。
 
-## Layout
+### 3.2 数据集列表
 
-- **Application Shell:** Collapsible 236px (64px collapsed) left rail paired with a 52px sticky top bar and scrollable main workspace (`max-width: 1380px`, `24px` desktop padding / `16px` mobile padding).
-- **Responsive Breakpoints:**
-  - `≤ 980px`: Dataset detail collapses from two-column (`268px` version rail + cases table) into a single column with an inline version `<el-select>`.
-  - `≤ 960px`: Login view collapses from asymmetric 54/46 split into a focused single-column sign-in panel.
-  - `≤ 860px`: Sidebar transitions into a slide-over drawer triggered from the top bar.
-- **Spacing Rhythm:** `4px` base step (`4 / 8 / 12 / 16 / 20 / 24 / 32px`). Page sections separate by `20px`; toolbar controls group at `8px`.
+页头为“数据集”及“新建数据集”；工具栏有搜索与结果计数。主体为单层紧凑表格：名称/说明、最新版本、用例数、更新时间及进入操作。其中名称/说明/创建时间来自 `GET /api/datasets`，最新版本/用例数/最近更新时间由前端按需读取既有 `GET /api/datasets/:id/versions` 可靠推导（无版本时明确显示“未导入”与 `0 条`）。列表适用于 1 条与多条记录。首次空态引导新建；搜索空态提供清除条件；加载失败提供重试。
 
-## Elevation & Depth
+### 3.3 数据集版本与用例
 
-Surfaces are flat by default; depth is established through three neutral tonal planes (rail → canvas → surface) and crisp `1px` borders. Offset shadows appear only on overlays (dialogs, drawers, dropdowns) and active segmented controls.
+版本历史明确“当前选择”与“只读快照”，选中态同时使用左侧指示条、高亮背景与文字徽标（不只靠颜色）；每项显示版本号、真实创建时间和用例数。用例列表展示 `case_key`、问题摘要、断言数和短哈希；完整 `case_hash` 在检查器查看/复制，复制结果给明确反馈与 `aria-live` 播报。存在两个及以上版本时，支持按需计算并明确标注“本地计算的版本变化摘要（对比上一版）”。
 
-**The Flat-By-Default Rule.** Never nest cards inside cards. Tables and toolbars share one `.td-surface` container separated by a hairline divider.
+### 3.4 导入新版本
 
-## Shapes
+保留 JSONL、JSON、CSV 格式切换、备注与示例。编辑区域显示物理行号；本地解析提供格式错误与行/列定位，按后端 `DatasetImportParser` 与 `DatasetService` 真实 schema 校验必填字段、忽略大小写重复 `case_key` 与断言结构。校验不在首次聚焦或空输入时过早报错。提交前摘要说明“将创建新版本”及本地解析条数；仅在服务端成功响应后显示真实版本号与条数。服务端错误保留用户输入并聚焦错误摘要。
 
-- **Sharp-Practical Corners:** `4px` (`--td-radius-xs`) for badges, pills, and code chips; `6px` (`--td-radius-sm`) for buttons, inputs, nav items, and segmented controls; `8px` (`--td-radius-md`) for primary `.td-surface` containers; `12px` (`--td-radius-lg`) for modal dialogs.
-- **Borders:** `1px solid` everywhere; no decorative left-side accent bars on rounded containers.
+### 3.5 模型渠道
 
-## Components
+渠道名称为主信息，类型标签 `Mock` / `OpenAI 兼容` 为中性文字，不从类型推断健康，页面载入后不出现无来源绿色圆点。配置细节按类型显示：Mock 档位与参数；OpenAI 兼容的模型、Endpoint 与只读 API Key 掩码（不可复制，避免误导）。单次冒烟测试按钮显示运行中、成功、失败或超时及时间/模型摘要；刷新后恢复“未在本次会话测试”。不展示 P95、成功率、调用量或成本统计。
 
-### Buttons
-- **Shape:** Subtle rounded rectangle (`6px` radius), medium weight (`500`).
-- **Primary:** Cobalt Signal fill with pure white label, `140ms` exponential ease-out hover shift.
-- **Secondary / Link:** Hairline-bordered neutral surface or bare link action for inline table controls.
+### 3.6 新增/编辑渠道
 
-### Theme Switcher
-- **Structure:** Compact 3-way segmented control (`浅色` / `自动` / `深色`) with `aria-pressed` state, mounted in the top bar and login corner. Persists `light | system | dark` in `localStorage('tracedelta_theme_mode')` and tracks OS `prefers-color-scheme` changes live.
+首屏显示名称、类型和相应必填字段。Mock 预设以名称加简短行为说明呈现并与配置联动；可选 Mock 配置和定价 JSON 收在“高级配置”。OpenAI 兼容渠道才显示 Endpoint、模型和 API Key。切换类型提交时不附带不适用字段。JSON 在失焦或提交时校验，错误贴近字段。编辑时仅展示后端掩码，留空按既有 API 语义保留原密钥。有未保存输入时关闭需确认。
 
-### Status Pills
-- **Style:** `4px` radius, tinted soft fill + matching hairline border + `6px` leading dot (`td-pill--success`, `td-pill--accent`, `td-pill--warning`, `td-pill--danger`, `td-pill--neutral`).
+## 4. 状态语义
 
-### Data Tables & Drawers
-- **Tables:** Single-surface container with integrated search/filter toolbar, skeleton loading, actionable empty states, clickable rows, and tabular-aligned mono columns.
-- **Drawers:** Used for deep inspection without leaving list context (Dataset Case JSON Inspector and Provider Smoke-Test Bench).
+| 维度 | 示例 | 可展示条件 | 呈现方式 |
+| --- | --- | --- | --- |
+| 渠道类型 | `Mock`、`OpenAI 兼容` | 配置字段真实存在 | 中性文字标签，不用成功色 |
+| Mock 行为 | `mock-good`、`mock-sloppy`、`mock-slow`、`mock-flaky` | 配置真实存在 | 档位名 + 行为说明；`slow`/`flaky` 不自动标故障 |
+| 配置状态 | 已配置、缺字段 | 基于必填字段推导，标明来源 | 中性或警告文字 + 图标 |
+| 单次冒烟结果 | 测试中、成功、失败、超时、未测试 | 当前请求的真实响应或临时交互态 | 明确“本次测试”与时间；包含错误/响应摘要 |
+| 评测/回归/门禁 | M2–M5 | 当前版本不展示 | 不预置可点击导航、假数据或健康数字 |
 
-## Do's and Don'ts
+## 5. 可访问性与完整状态
 
-### Do:
-- **Do** declare every color through `--td-*` CSS custom properties so Light and Dark modes stay synchronized automatically.
-- **Do** pair every data table with skeleton loading, actionable empty states, and filtered empty states.
-- **Do** use `td-mono` and `tabular-nums` for `case_key`, `case_hash`, latency (`ms`), token counts, and timestamps.
-- **Do** keep transitions crisp (`140ms–200ms`) and bound strictly to state feedback.
+- Tab 顺序遵循视觉顺序；行跳转、复制、菜单、主题切换和格式切换均可键盘操作。可点击行使用原生链接或按钮语义；行内操作不触发外层导航。
+- 弹窗打开后焦点进入标题或首个字段，关闭后回到触发元素；Esc、Tab 约束和长弹窗内部滚动可用。提交错误时焦点移到错误摘要或首个错误字段。
+- 主题三选一使用 `radiogroup` / `radio` 语义，支持方向键切换；System 随系统变化，首屏渲染前解析并同步 Element Plus 弹层。焦点环至少 2px 且不被顶栏遮挡。
+- 每个数据视图覆盖加载、首次为空、筛选为空、失败（可重试）、成功和提交中。异步反馈通过 `aria-live="polite"` 播报，避免图标或颜色单独传达信息。
+- 在 1440/1024/768/375 CSS px、200% 缩放、Light/Dark/System 与键盘路径下实测检查。
 
-### Don't:
-- **Don't** hardcode hex colors inside Vue components or mix Element Plus default blue with custom palette accents.
-- **Don't** place eyebrow/kicker labels above page headings or nest `el-card` inside another card.
-- **Don't** use emoji or raw Unicode arrows in place of `TdIcon.vue` SVG icons.
-- **Don't** use gradient text, zero-offset neon glows, or decorative glassmorphism on Operate workbenches.
+## 6. 求职演示规范
+
+演示围绕已实现闭环：登录、创建数据集、导入两个不可变版本、查看 `case_hash`、配置确定性 Mock 并执行单次冒烟测试、查看 OpenAI 兼容渠道的密钥掩码。README 与演示记录引用真实截图、请求/响应和操作步骤。性能数字、恢复时长、测试覆盖率、五维回归结果及质量门禁只有真实测量或对应里程碑实现后才能展示。对外部 LLM 调用只描述其真实语义，不承诺 Exactly-Once。

@@ -1,40 +1,67 @@
 <script setup lang="ts">
-import { reactive, ref } from 'vue'
+import { nextTick, reactive, ref } from 'vue'
 import { useRouter } from 'vue-router'
-import { ElMessage } from 'element-plus'
 import { useAuthStore } from '../stores/auth'
 import TdIcon from '../components/TdIcon.vue'
 import ThemeSwitcher from '../components/ThemeSwitcher.vue'
 
 const router = useRouter()
 const auth = useAuthStore()
+const devHint = import.meta.env.DEV ? '本地开发模式：使用本地环境配置的管理员凭据登录' : ''
 
 const form = reactive({
-  username: 'admin',
+  username: '',
   password: '',
 })
 const loading = ref(false)
-const formError = ref('')
+const errorText = ref('')
+const usernameRef = ref<HTMLInputElement | null>(null)
+const passwordRef = ref<HTMLInputElement | null>(null)
 
-const pipelineSteps = [
-  { tag: 'SNAPSHOT', title: '不可变数据集版本', detail: '规范化 JSON 生成 SHA-256 case_hash，保证跨版本公平对齐' },
-  { tag: 'RUNNER', title: '并发调度与故障恢复', detail: '虚拟线程 + 三级并发控制 + EvalAttempt 幂等落库' },
-  { tag: 'TRACE', title: '执行链路与五维回归', detail: 'OTel 语义 Span 记录与功能/质量/性能/成本/可靠性对比' },
-]
+function mapLoginError(err: unknown): string {
+  const status = (err as { response?: { status?: number } })?.response?.status
+  if (status === 401 || status === 403) {
+    return '用户名或密码不正确，请检查后重试。'
+  }
+  if (status && status >= 500) {
+    return '服务端暂时不可用，请稍后重试。'
+  }
+  const msg = err instanceof Error ? err.message : ''
+  if (msg.toLowerCase().includes('invalid username or password')) {
+    return '用户名或密码不正确，请检查后重试。'
+  }
+  if (msg.toLowerCase().includes('network') || msg.toLowerCase().includes('timeout')) {
+    return '无法连接到服务端，请确认本地后端已启动。'
+  }
+  return '登录未成功，请检查凭据或网络连接后重试。'
+}
 
 async function handleSubmit() {
-  formError.value = ''
-  if (!form.username.trim() || !form.password.trim()) {
-    formError.value = '请输入用户名和密码'
+  if (loading.value) return
+  errorText.value = ''
+
+  if (!form.username.trim()) {
+    errorText.value = '请输入用户名。'
+    await nextTick()
+    usernameRef.value?.focus()
     return
   }
+  if (!form.password) {
+    errorText.value = '请输入密码。'
+    await nextTick()
+    passwordRef.value?.focus()
+    return
+  }
+
   loading.value = true
   try {
     await auth.login(form.username.trim(), form.password)
-    ElMessage.success('登录成功')
     router.push('/datasets')
   } catch (err) {
-    formError.value = err instanceof Error ? err.message : '登录失败，请检查账号和密码'
+    errorText.value = mapLoginError(err)
+    await nextTick()
+    passwordRef.value?.focus()
+    passwordRef.value?.select()
   } finally {
     loading.value = false
   }
@@ -42,350 +69,218 @@ async function handleSubmit() {
 </script>
 
 <template>
-  <div class="login-shell">
-    <div class="login-theme-bar">
+  <div class="login-page">
+    <div class="login-theme">
       <ThemeSwitcher :show-label="true" />
     </div>
 
-    <!-- Left engineering workbench panel -->
-    <section class="login-showcase" aria-label="平台概览">
-      <div class="showcase-inner">
-        <div class="showcase-brand">
-          <span class="brand-mark">
-            <TdIcon name="logo" :size="20" />
-          </span>
-          <span class="brand-title">TraceDelta</span>
-        </div>
-
-        <h1 class="showcase-heading">
-          让大模型迭代像单元测试一样<br />可复现、可追溯
-        </h1>
-        <p class="showcase-lead">
-          面向 Java 企业级 AI 应用的轻量化自动化质量保障控制台，用不可变题库、确定性 Mock 与五维回归替代凭感觉调优。
-        </p>
-
-        <div class="pipeline-list">
-          <div v-for="step in pipelineSteps" :key="step.tag" class="pipeline-row">
-            <span class="pipeline-tag td-mono">{{ step.tag }}</span>
-            <div class="pipeline-copy">
-              <div class="pipeline-title">{{ step.title }}</div>
-              <div class="pipeline-detail">{{ step.detail }}</div>
-            </div>
-          </div>
-        </div>
-
-        <div class="snapshot-preview">
-          <div class="preview-header">
-            <span class="preview-file td-mono">dataset_case · v2 snapshot</span>
-            <span class="td-pill td-pill--success">
-              <span class="td-pill-dot" />
-              SHA-256 Verified
-            </span>
-          </div>
-          <pre class="preview-code td-mono"><code>{
-  "case_key": "refund-edge-04",
-  "input": { "question": "返回合法 JSON 格式的退款状态" },
-  "assertions": [{ "type": "json_valid" }],
-  "case_hash": "9f8c2a1e4d07..."
-}</code></pre>
-        </div>
-      </div>
-    </section>
-
-    <!-- Right sign-in panel -->
-    <section class="login-panel" aria-label="管理员登录">
-      <div class="panel-inner">
-        <div class="mobile-brand">
-          <span class="brand-mark">
+    <main class="login-container">
+      <div class="login-brand-block">
+        <div class="login-brand">
+          <span class="login-mark" aria-hidden="true">
             <TdIcon name="logo" :size="18" />
           </span>
-          <span class="brand-title">TraceDelta</span>
+          <span class="login-name">TraceDelta</span>
         </div>
-
-        <div class="panel-head">
-          <h2>登录控制台</h2>
-          <p>使用本地初始化的管理员凭据进入评测工作台。</p>
-        </div>
-
-        <div v-if="formError" class="login-alert" role="alert">
-          {{ formError }}
-        </div>
-
-        <el-form label-position="top" class="login-form" @submit.prevent="handleSubmit">
-          <el-form-item label="用户名">
-            <el-input
-              v-model="form.username"
-              size="large"
-              placeholder="admin"
-              autocomplete="username"
-            />
-          </el-form-item>
-
-          <el-form-item label="密码">
-            <el-input
-              v-model="form.password"
-              size="large"
-              type="password"
-              show-password
-              placeholder="请输入管理员密码"
-              autocomplete="current-password"
-              @keyup.enter="handleSubmit"
-            />
-          </el-form-item>
-
-          <el-button
-            type="primary"
-            size="large"
-            class="submit-btn"
-            :loading="loading"
-            @click="handleSubmit"
-          >
-            {{ loading ? '正在验证...' : '进入工作台' }}
-          </el-button>
-        </el-form>
-
-        <div class="panel-footnote">
-          <TdIcon name="lock" :size="13" />
-          <span>初始密码取自本地 <code class="td-mono">.env</code> 中的 <code class="td-mono">TRACEDELTA_ADMIN_PASSWORD</code></span>
-        </div>
+        <p class="login-positioning">数据集版本与模型渠道验证工作台</p>
       </div>
-    </section>
+
+      <form class="login-card" novalidate @submit.prevent="handleSubmit">
+        <h1 class="login-title">登录控制台</h1>
+
+        <div
+          v-if="errorText"
+          id="login-error"
+          class="form-alert login-alert"
+          role="alert"
+          aria-live="assertive"
+        >
+          <TdIcon name="alert-circle" :size="15" />
+          <span>{{ errorText }}</span>
+        </div>
+
+        <div class="field">
+          <label class="field-label" for="login-user">用户名</label>
+          <input
+            id="login-user"
+            ref="usernameRef"
+            v-model="form.username"
+            type="text"
+            class="field-input"
+            placeholder="请输入操作员用户名"
+            autocomplete="username"
+            required
+            :aria-invalid="Boolean(errorText && !form.username.trim())"
+            :aria-describedby="errorText ? 'login-error' : undefined"
+          />
+        </div>
+
+        <div class="field">
+          <label class="field-label" for="login-pass">密码</label>
+          <input
+            id="login-pass"
+            ref="passwordRef"
+            v-model="form.password"
+            type="password"
+            class="field-input"
+            placeholder="请输入登录密码"
+            autocomplete="current-password"
+            required
+            :aria-invalid="Boolean(errorText)"
+            :aria-describedby="errorText ? 'login-error' : undefined"
+          />
+        </div>
+
+        <button
+          type="submit"
+          class="btn btn--primary login-submit"
+          :disabled="loading"
+          :aria-busy="loading"
+        >
+          {{ loading ? '验证中…' : '登录' }}
+        </button>
+      </form>
+
+      <p v-if="devHint" class="login-dev-hint">{{ devHint }}</p>
+    </main>
   </div>
 </template>
 
 <style scoped>
-.login-shell {
+.login-page {
   position: relative;
   min-height: 100vh;
-  display: grid;
-  grid-template-columns: minmax(0, 1.12fr) minmax(0, 0.88fr);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 64px 20px 40px;
   background-color: var(--td-bg-canvas);
 }
 
-.login-theme-bar {
+.login-theme {
   position: absolute;
-  top: 20px;
-  right: 24px;
-  z-index: 10;
+  top: 16px;
+  right: 20px;
 }
 
-.login-showcase {
-  background-color: var(--td-bg-rail);
-  border-right: 1px solid var(--td-border-subtle);
-  background-image: radial-gradient(var(--td-border-default) 1px, transparent 1px);
-  background-size: 24px 24px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  padding: 48px 40px;
-}
-
-.showcase-inner {
+.login-container {
   width: 100%;
-  max-width: 520px;
+  max-width: 372px;
   display: flex;
   flex-direction: column;
-  gap: 24px;
-}
-
-.showcase-brand,
-.mobile-brand {
-  display: inline-flex;
   align-items: center;
-  gap: 10px;
+  gap: 18px;
 }
 
-.mobile-brand {
-  display: none;
-  margin-bottom: 16px;
-}
-
-.brand-mark {
-  width: 34px;
-  height: 34px;
-  border-radius: var(--td-radius-sm);
-  background-color: var(--td-accent);
-  color: #ffffff;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-}
-
-html.dark .brand-mark {
-  background-color: #2563eb;
-}
-
-.brand-title {
-  font-size: var(--td-text-lg);
-  font-weight: 700;
-  letter-spacing: -0.02em;
-  color: var(--td-text-primary);
-}
-
-.showcase-heading {
-  margin: 0;
-  font-size: 1.75rem;
-  line-height: 1.3;
-  font-weight: 600;
-  letter-spacing: -0.025em;
-  text-wrap: balance;
-  color: var(--td-text-primary);
-}
-
-.showcase-lead {
-  margin: -10px 0 0;
-  font-size: var(--td-text-base);
-  line-height: 1.65;
-  color: var(--td-text-secondary);
-}
-
-.pipeline-list {
+.login-brand-block {
   display: flex;
   flex-direction: column;
-  gap: 10px;
-}
-
-.pipeline-row {
-  display: flex;
-  align-items: flex-start;
-  gap: 12px;
-  padding: 12px 14px;
-  border-radius: var(--td-radius-md);
-  background-color: var(--td-bg-surface);
-  border: 1px solid var(--td-border-subtle);
-}
-
-.pipeline-tag {
-  font-size: 11px;
-  font-weight: 600;
-  color: var(--td-accent);
-  background-color: var(--td-accent-soft);
-  border: 1px solid var(--td-accent-border);
-  border-radius: var(--td-radius-xs);
-  padding: 2px 7px;
-  min-width: 78px;
+  align-items: center;
+  gap: 6px;
   text-align: center;
-  margin-top: 2px;
 }
 
-.pipeline-title {
-  font-size: var(--td-text-sm);
-  font-weight: 600;
-  color: var(--td-text-primary);
-}
-
-.pipeline-detail {
-  margin-top: 2px;
-  font-size: var(--td-text-xs);
-  color: var(--td-text-secondary);
-}
-
-.snapshot-preview {
-  border-radius: var(--td-radius-md);
-  border: 1px solid var(--td-border-default);
-  background-color: var(--td-bg-code);
-  overflow: hidden;
-}
-
-.preview-header {
-  display: flex;
+.login-brand {
+  display: inline-flex;
   align-items: center;
-  justify-content: space-between;
-  padding: 8px 12px;
-  background-color: var(--td-bg-code-header);
-  border-bottom: 1px solid var(--td-border-subtle);
+  gap: 9px;
 }
 
-.preview-file {
-  font-size: var(--td-text-xs);
-  color: var(--td-text-secondary);
-}
-
-.preview-code {
-  margin: 0;
-  padding: 12px 14px;
-  font-size: 12px;
-  line-height: 1.6;
-  color: var(--td-text-primary);
-  overflow-x: auto;
-}
-
-.login-panel {
-  display: flex;
+.login-mark {
+  width: 30px;
+  height: 30px;
+  border-radius: var(--radius-md);
+  background-color: var(--td-primary-bg);
+  color: var(--td-primary-fg);
+  display: inline-flex;
   align-items: center;
   justify-content: center;
-  padding: 64px 32px 32px;
 }
 
-.panel-inner {
-  width: 100%;
-  max-width: 368px;
-}
-
-.panel-head h2 {
-  margin: 0;
-  font-size: 1.375rem;
+.login-name {
+  font-size: 16px;
   font-weight: 600;
   letter-spacing: -0.02em;
   color: var(--td-text-primary);
 }
 
-.panel-head p {
-  margin: 6px 0 0;
-  font-size: var(--td-text-sm);
+.login-positioning {
+  margin: 0;
+  font-size: 13px;
   color: var(--td-text-secondary);
+}
+
+.login-card {
+  width: 100%;
+  padding: 24px;
+  border-radius: var(--radius-md);
+  background-color: var(--td-bg-surface);
+  border: 1px solid var(--td-border);
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.login-title {
+  margin: 0 0 2px;
+  font-size: 16px;
+  font-weight: 600;
+  letter-spacing: -0.02em;
+  color: var(--td-text-primary);
 }
 
 .login-alert {
-  margin-top: 16px;
-  padding: 10px 12px;
-  border-radius: var(--td-radius-sm);
-  background-color: var(--td-danger-soft);
-  border: 1px solid var(--td-danger-border);
-  color: var(--td-danger);
-  font-size: var(--td-text-sm);
+  margin-bottom: 0;
 }
 
-.login-form {
-  margin-top: 24px;
-}
-
-.submit-btn {
-  width: 100%;
-  margin-top: 8px;
-  height: 40px;
-}
-
-.panel-footnote {
-  margin-top: 20px;
-  padding-top: 16px;
-  border-top: 1px solid var(--td-border-subtle);
+.field {
   display: flex;
-  align-items: flex-start;
-  gap: 8px;
-  font-size: var(--td-text-xs);
+  flex-direction: column;
+  gap: 6px;
+}
+
+.field-label {
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--td-text-primary);
+}
+
+.field-input {
+  width: 100%;
+  height: var(--ctrl-h);
+  padding: 0 11px;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--td-border-strong);
+  background-color: var(--td-bg-surface);
+  color: var(--td-text-primary);
+  font-family: inherit;
+  font-size: 14px;
+  transition: border-color var(--dur-fast) var(--ease);
+}
+
+.field-input::placeholder {
   color: var(--td-text-muted);
-  line-height: 1.5;
 }
 
-.panel-footnote code {
-  padding: 1px 4px;
-  border-radius: var(--td-radius-xs);
-  background-color: var(--td-bg-subtle);
+.field-input:hover {
+  border-color: var(--td-text-secondary);
+}
+
+.field-input:focus {
+  outline: 2px solid var(--td-focus);
+  outline-offset: 1px;
+  border-color: var(--td-focus);
+}
+
+.login-submit {
+  width: 100%;
+  margin-top: 4px;
+}
+
+.login-dev-hint {
+  margin: 0;
+  font-size: 12px;
   color: var(--td-text-secondary);
-}
-
-@media (max-width: 960px) {
-  .login-shell {
-    grid-template-columns: 1fr;
-  }
-
-  .login-showcase {
-    display: none;
-  }
-
-  .mobile-brand {
-    display: inline-flex;
-  }
+  text-align: center;
 }
 </style>

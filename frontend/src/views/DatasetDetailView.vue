@@ -1,83 +1,110 @@
 <script setup lang="ts">
-import { computed, onMounted, reactive, ref, watch } from 'vue'
+import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
-import { ElMessage } from 'element-plus'
-import {
-  importDatasetVersionApi,
-  listDatasetCasesApi,
-  listDatasetsApi,
-  listDatasetVersionsApi,
-  type DatasetCaseItem,
-  type DatasetItem,
-  type DatasetVersionItem,
-} from '../api/dataset'
+import { ElMessage, ElMessageBox } from 'element-plus'
+import { importDatasetVersionApi, type DatasetCaseItem } from '../api/dataset'
+import { useConsoleDataStore } from '../stores/consoleData'
 import TdIcon from '../components/TdIcon.vue'
 import { copyText, formatDateTime, parseJsonArray, prettyJson } from '../utils/format'
+import {
+  validateDatasetImport,
+  type ImportFormat,
+  type ImportValidationResult,
+} from '../utils/datasetImportValidator'
 
 const route = useRoute()
 const router = useRouter()
+const store = useConsoleDataStore()
 const datasetId = computed(() => Number(route.params.id))
 
-const datasetMeta = ref<DatasetItem | null>(null)
-const versions = ref<DatasetVersionItem[]>([])
-const selectedVersion = ref<number | null>(null)
-const cases = ref<DatasetCaseItem[]>([])
-const caseSearch = ref('')
+const datasetMeta = computed(() => store.datasets.find((d) => d.id === datasetId.value) || null)
+const versions = computed(() => store.getCachedVersions(datasetId.value) ?? [])
+const versionsReady = computed(() => store.getCachedVersions(datasetId.value) !== undefined)
 
-const loadingVersions = ref(false)
-const loadingCases = ref(false)
+const selectedVersion = ref<number | null>(null)
+const cases = computed(() =>
+  selectedVersion.value === null
+    ? []
+    : (store.getCachedCases(datasetId.value, selectedVersion.value) ?? []),
+)
+const casesReady = computed(
+  () =>
+    selectedVersion.value !== null &&
+    store.getCachedCases(datasetId.value, selectedVersion.value) !== undefined,
+)
+const caseSearch = ref('')
+const loadError = ref('')
+const liveAnnouncement = ref('')
+
+const showSlowHint = ref(false)
+let slowTimer: number | null = null
+
+const copiedHashId = ref<number | null>(null)
+const inspectorHashCopied = ref(false)
+let hashCopyTimer: number | null = null
 
 const inspectingCase = ref<DatasetCaseItem | null>(null)
 const inspectorVisible = ref(false)
 
+// Local version change summary (on-demand, strictly computed from fetched immutable versions)
+const diffOpen = ref(false)
+const diffLoading = ref(false)
+const diffError = ref('')
+
+// Import dialog state
 const importVisible = ref(false)
 const importing = ref(false)
+const importServerError = ref('')
+const importTouched = ref(false)
+const importAlertRef = ref<HTMLElement | null>(null)
+const importTextareaRef = ref<HTMLTextAreaElement | null>(null)
+const importGutterRef = ref<HTMLElement | null>(null)
+
 const importForm = reactive({
-  format: 'JSONL' as 'JSONL' | 'JSON' | 'CSV',
+  format: 'JSONL' as ImportFormat,
   note: '',
   content: '',
 })
 
-const SAMPLE_CONTENT: Record<'JSONL' | 'JSON' | 'CSV', { note: string; content: string }> = {
-  JSONL: {
-    note: '示例 JSONL 批次',
-    content: `{"case_key":"case-01","input":{"question":"什么是 Java 21 虚拟线程？"},"reference_answer":"轻量级用户态线程，适合高并发 I/O 场景","assertions":[{"type":"contains","expected":"虚拟线程"}]}
+const SAMPLE_CONTENT: Record<ImportFormat, string> = {
+  JSONL: `{"case_key":"case-01","input":{"question":"什么是 Java 21 虚拟线程？"},"reference_answer":"轻量级用户态线程，适合高并发 I/O 场景","assertions":[{"type":"contains","expected":"虚拟线程"}]}
 {"case_key":"case-02","input":{"question":"返回合法 JSON 格式的退款状态"},"reference_answer":"{\\"status\\":\\"refunded\\"}","assertions":[{"type":"json_valid"}]}`,
-  },
-  JSON: {
-    note: '示例 JSON 数组批次',
-    content: JSON.stringify(
-      [
-        {
-          case_key: 'case-01',
-          input: { question: '简述 Redis 令牌桶相比固定窗口限流的优势' },
-          reference_answer: '平滑处理突发流量，避免窗口边界双倍放行问题',
-          assertions: [{ type: 'contains', expected: '突发' }],
-        },
-        {
-          case_key: 'case-02',
-          input: { question: '输出 JSON 包含字段 passed 和 reason' },
-          reference_answer: '{"passed":true,"reason":"ok"}',
-          assertions: [{ type: 'json_valid' }],
-        },
-      ],
-      null,
-      2,
-    ),
-  },
-  CSV: {
-    note: '示例 CSV 批次',
-    content: `question,reference_answer
+  JSON: JSON.stringify(
+    [
+      {
+        case_key: 'case-01',
+        input: { question: '简述 Redis 令牌桶相比固定窗口限流的优势' },
+        reference_answer: '平滑处理突发流量，避免窗口边界双倍放行问题',
+        assertions: [{ type: 'contains', expected: '突发' }],
+      },
+      {
+        case_key: 'case-02',
+        input: { question: '输出 JSON 包含字段 passed 和 reason' },
+        reference_answer: '{"passed":true,"reason":"ok"}',
+        assertions: [{ type: 'json_valid' }],
+      },
+    ],
+    null,
+    2,
+  ),
+  CSV: `question,reference_answer
 "什么是不可变数据集快照？","每次编辑生成新版本，历史版本不可修改，保证回归对比可复现"
 "为什么外部模型调用只能保证 At-Least-Once？","上游 API 通常不提供幂等键，写库前崩溃重启会触发受控重试"`,
-  },
 }
 
 const sortedVersions = computed(() => [...versions.value].sort((a, b) => b.versionNo - a.versionNo))
-
-const activeVersionObj = computed(
+const latestVersionNo = computed(() =>
+  sortedVersions.value.length > 0 ? sortedVersions.value[0].versionNo : 0,
+)
+const activeVersion = computed(
   () => versions.value.find((v) => v.versionNo === selectedVersion.value) || null,
 )
+const previousVersion = computed(() => {
+  if (selectedVersion.value === null) return null
+  const idx = sortedVersions.value.findIndex((v) => v.versionNo === selectedVersion.value)
+  if (idx < 0 || idx + 1 >= sortedVersions.value.length) return null
+  return sortedVersions.value[idx + 1]
+})
 
 const filteredCases = computed(() => {
   const q = caseSearch.value.trim().toLowerCase()
@@ -91,82 +118,271 @@ const filteredCases = computed(() => {
   )
 })
 
-const nonEmptyLineCount = computed(() =>
-  importForm.content
-    .split('\n')
-    .map((line) => line.trim())
-    .filter(Boolean).length,
+// Local validation (only displayed once user interacts or attempts submit)
+const validationResult = computed<ImportValidationResult>(() => {
+  if (!importForm.content.trim()) {
+    return { valid: false, issues: [], cases: [] }
+  }
+  return validateDatasetImport(importForm.format, importForm.content)
+})
+
+const showValidationErrors = computed(
+  () => importTouched.value && !validationResult.value.valid && validationResult.value.issues.length > 0,
 )
 
-async function loadDatasetMeta() {
-  try {
-    const all = await listDatasetsApi()
-    datasetMeta.value = all.find((d) => d.id === datasetId.value) || null
-  } catch {
-    datasetMeta.value = null
+const errorLineSet = computed(() => new Set(validationResult.value.issues.map((i) => i.line)))
+
+const totalEditorLines = computed(() => {
+  const count = importForm.content.split(/\r?\n/).length
+  return Math.max(count, 10)
+})
+
+const nonEmptyLineCount = computed(
+  () =>
+    importForm.content
+      .split(/\r?\n/)
+      .map((l) => l.trim())
+      .filter(Boolean).length,
+)
+
+const canSubmitImport = computed(
+  () =>
+    !importing.value &&
+    Boolean(importForm.content.trim()) &&
+    validationResult.value.valid &&
+    validationResult.value.cases.length > 0,
+)
+
+// Local version diff (strictly based on fetched immutable cases of current vs previous version)
+const localDiffSummary = computed(() => {
+  if (!diffOpen.value || !activeVersion.value || !previousVersion.value) return null
+  const prevCases = store.getCachedCases(datasetId.value, previousVersion.value.versionNo)
+  if (!prevCases || !casesReady.value) return null
+
+  const prevMap = new Map(prevCases.map((c) => [c.caseKey, c]))
+  const curMap = new Map(cases.value.map((c) => [c.caseKey, c]))
+
+  const added: string[] = []
+  const modified: string[] = []
+  const unchanged: string[] = []
+  const removed: string[] = []
+
+  for (const [key, cur] of curMap.entries()) {
+    const prev = prevMap.get(key)
+    if (!prev) {
+      added.push(key)
+    } else if (prev.caseHash !== cur.caseHash) {
+      modified.push(key)
+    } else {
+      unchanged.push(key)
+    }
   }
+  for (const key of prevMap.keys()) {
+    if (!curMap.has(key)) {
+      removed.push(key)
+    }
+  }
+
+  return {
+    baseVersionNo: previousVersion.value.versionNo,
+    targetVersionNo: activeVersion.value.versionNo,
+    added,
+    removed,
+    modified,
+    unchanged,
+  }
+})
+
+function announce(text: string) {
+  liveAnnouncement.value = ''
+  nextTick(() => {
+    liveAnnouncement.value = text
+  })
 }
 
-async function loadVersions() {
-  loadingVersions.value = true
+function startSlowTimer() {
+  if (slowTimer !== null) window.clearTimeout(slowTimer)
+  slowTimer = window.setTimeout(() => {
+    showSlowHint.value = true
+  }, 180)
+}
+
+function stopSlowTimer() {
+  if (slowTimer !== null) {
+    window.clearTimeout(slowTimer)
+    slowTimer = null
+  }
+  showSlowHint.value = false
+}
+
+async function loadVersionsAndCases() {
+  loadError.value = ''
+  const id = datasetId.value
+  if (!versionsReady.value) startSlowTimer()
   try {
-    versions.value = await listDatasetVersionsApi(datasetId.value)
-    if (versions.value.length > 0) {
-      const latest = Math.max(...versions.value.map((v) => v.versionNo))
-      if (!selectedVersion.value || !versions.value.some((v) => v.versionNo === selectedVersion.value)) {
+    const fetched = await store.fetchVersions(id)
+    if (fetched.length > 0) {
+      const latest = Math.max(...fetched.map((v) => v.versionNo))
+      if (selectedVersion.value === null || !fetched.some((v) => v.versionNo === selectedVersion.value)) {
         selectedVersion.value = latest
       } else {
-        await loadCases(selectedVersion.value)
+        await store.fetchCases(id, selectedVersion.value)
       }
     } else {
       selectedVersion.value = null
-      cases.value = []
     }
+  } catch (err) {
+    loadError.value = err instanceof Error ? err.message : '加载版本列表失败'
   } finally {
-    loadingVersions.value = false
+    stopSlowTimer()
   }
 }
 
-async function loadCases(versionNo: number) {
-  loadingCases.value = true
+watch(selectedVersion, async (v) => {
+  diffOpen.value = false
+  diffError.value = ''
+  if (v === null) return
+  const id = datasetId.value
+  if (store.getCachedCases(id, v) === undefined) startSlowTimer()
   try {
-    cases.value = await listDatasetCasesApi(datasetId.value, versionNo)
+    await store.fetchCases(id, v)
+  } catch (err) {
+    loadError.value = err instanceof Error ? err.message : `加载 v${v} 用例失败`
   } finally {
-    loadingCases.value = false
-  }
-}
-
-watch(selectedVersion, (v) => {
-  if (v !== null) {
-    loadCases(v)
+    stopSlowTimer()
   }
 })
 
 watch(datasetId, () => {
   selectedVersion.value = null
-  cases.value = []
-  loadDatasetMeta()
-  loadVersions()
+  caseSearch.value = ''
+  diffOpen.value = false
+  loadVersionsAndCases()
 })
 
-function openImportDialog(prefillSample = false) {
-  if (prefillSample) {
-    fillSample()
+async function toggleLocalDiff() {
+  if (diffOpen.value) {
+    diffOpen.value = false
+    return
   }
+  if (!previousVersion.value) return
+  diffOpen.value = true
+  diffError.value = ''
+  const prevNo = previousVersion.value.versionNo
+  if (store.getCachedCases(datasetId.value, prevNo) === undefined) {
+    diffLoading.value = true
+    try {
+      await store.fetchCases(datasetId.value, prevNo)
+    } catch (err) {
+      diffError.value = err instanceof Error ? err.message : `无法加载 v${prevNo} 数据进行对比`
+    } finally {
+      diffLoading.value = false
+    }
+  }
+}
+
+function openImportDialog() {
+  importServerError.value = ''
+  importTouched.value = false
   importVisible.value = true
 }
 
+function onImportDialogOpened() {
+  nextTick(() => {
+    importTextareaRef.value?.focus()
+  })
+}
+
+function setImportFormat(fmt: ImportFormat) {
+  importForm.format = fmt
+  importServerError.value = ''
+  if (importForm.content.trim()) {
+    importTouched.value = true
+  }
+}
+
 function fillSample() {
-  const sample = SAMPLE_CONTENT[importForm.format]
-  importForm.note = sample.note
-  importForm.content = sample.content
+  importForm.content = SAMPLE_CONTENT[importForm.format]
+  importServerError.value = ''
+  importTouched.value = true
+  announce(`已填入 ${importForm.format} 示例，共 ${validationResult.value.cases.length} 条用例`)
+}
+
+function onEditorInput() {
+  importTouched.value = true
+  importServerError.value = ''
+}
+
+function onEditorBlur() {
+  if (importForm.content.trim()) {
+    importTouched.value = true
+  }
+}
+
+function syncEditorScroll() {
+  if (importTextareaRef.value && importGutterRef.value) {
+    importGutterRef.value.scrollTop = importTextareaRef.value.scrollTop
+  }
+}
+
+function jumpToEditorLine(lineNo: number) {
+  const el = importTextareaRef.value
+  if (!el) return
+  const lines = importForm.content.split('\n')
+  let offset = 0
+  for (let i = 0; i < Math.min(lineNo - 1, lines.length); i++) {
+    offset += lines[i].length + 1
+  }
+  const targetLineLen = lines[Math.max(0, lineNo - 1)]?.length ?? 0
+  el.focus()
+  el.setSelectionRange(offset, offset + targetLineLen)
+  const lineHeight = 20
+  el.scrollTop = Math.max(0, (lineNo - 3) * lineHeight)
+  syncEditorScroll()
+}
+
+async function handleImportBeforeClose(done: () => void) {
+  if (importing.value) return
+  if (importForm.content.trim() || importForm.note.trim()) {
+    try {
+      await ElMessageBox.confirm('当前有未导入的编辑内容，确定关闭弹窗吗？', '放弃导入', {
+        confirmButtonText: '放弃并关闭',
+        cancelButtonText: '继续编辑',
+        type: 'warning',
+      })
+      done()
+    } catch {
+      // keep dialog open
+    }
+    return
+  }
+  done()
+}
+
+async function requestCloseImport() {
+  await handleImportBeforeClose(() => {
+    importVisible.value = false
+  })
 }
 
 async function handleImport() {
+  if (importing.value) return
+  importServerError.value = ''
+  importTouched.value = true
+
   if (!importForm.content.trim()) {
-    ElMessage.warning('请粘贴导入内容')
+    importServerError.value = '请粘贴或填入待导入的用例内容。'
+    await nextTick()
+    importTextareaRef.value?.focus()
     return
   }
+
+  if (!validationResult.value.valid) {
+    await nextTick()
+    importAlertRef.value?.focus()
+    return
+  }
+
   importing.value = true
   try {
     const created = await importDatasetVersionApi(
@@ -175,26 +391,50 @@ async function handleImport() {
       importForm.content,
       importForm.note.trim(),
     )
-    ElMessage.success(`成功导入 v${created.versionNo}（共 ${created.caseCount} 条用例）`)
+    const msg = `服务端已创建 v${created.versionNo}（共 ${created.caseCount} 条用例）`
+    ElMessage.success(msg)
+    announce(msg)
     importVisible.value = false
     importForm.note = ''
     importForm.content = ''
-    selectedVersion.value = created.versionNo
-    await loadVersions()
+    importTouched.value = false
+    await store.fetchVersions(datasetId.value)
+    if (selectedVersion.value === created.versionNo) {
+      await store.fetchCases(datasetId.value, created.versionNo)
+    } else {
+      selectedVersion.value = created.versionNo
+    }
+  } catch (err) {
+    importServerError.value = err instanceof Error ? err.message : '服务端导入失败，请根据提示修改后重试'
+    await nextTick()
+    importAlertRef.value?.focus()
   } finally {
     importing.value = false
   }
 }
 
+async function handleCopyHash(item: DatasetCaseItem, fromInspector = false) {
+  await copyText(item.caseHash, '已复制完整 SHA-256 哈希')
+  announce(`已复制 ${item.caseKey} 的完整 SHA-256 哈希`)
+  if (fromInspector) {
+    inspectorHashCopied.value = true
+  } else {
+    copiedHashId.value = item.id
+  }
+  if (hashCopyTimer !== null) window.clearTimeout(hashCopyTimer)
+  hashCopyTimer = window.setTimeout(() => {
+    copiedHashId.value = null
+    inspectorHashCopied.value = false
+  }, 1800)
+}
+
 function summarizeInput(inputJson: string): string {
   try {
     const parsed = JSON.parse(inputJson) as Record<string, unknown>
-    if (typeof parsed.question === 'string' && parsed.question.trim()) {
-      return parsed.question
-    }
-    return inputJson.slice(0, 100)
+    if (typeof parsed.question === 'string' && parsed.question.trim()) return parsed.question
+    return inputJson.slice(0, 140)
   } catch {
-    return inputJson.slice(0, 100)
+    return inputJson.slice(0, 140)
   }
 }
 
@@ -204,330 +444,552 @@ function assertionCount(assertionsJson: string): number {
 
 function openInspector(item: DatasetCaseItem) {
   inspectingCase.value = item
+  inspectorHashCopied.value = false
   inspectorVisible.value = true
 }
 
-onMounted(() => {
-  loadDatasetMeta()
-  loadVersions()
+onMounted(async () => {
+  if (!store.datasetsLoaded) {
+    try {
+      await store.fetchDatasets()
+    } catch {
+      // meta is optional; page still works with id fallback
+    }
+  }
+  loadVersionsAndCases()
+})
+
+onBeforeUnmount(() => {
+  stopSlowTimer()
+  if (hashCopyTimer !== null) window.clearTimeout(hashCopyTimer)
 })
 </script>
 
 <template>
-  <div class="td-page">
-    <div class="td-page-header">
-      <div class="header-main">
-        <button type="button" class="back-btn" @click="router.push('/datasets')">
-          <TdIcon name="arrow-left" :size="14" />
-          返回数据集列表
-        </button>
-        <div class="title-row">
-          <h1 class="td-page-title">
-            {{ datasetMeta?.name || `数据集 #${datasetId}` }}
-          </h1>
-          <span class="id-badge td-mono">#{{ datasetId }}</span>
-          <span v-if="activeVersionObj" class="td-pill td-pill--accent td-mono">
-            v{{ activeVersionObj.versionNo }}
-          </span>
-        </div>
-        <p v-if="datasetMeta?.description" class="td-page-desc">
-          {{ datasetMeta.description }}
-        </p>
+  <div class="view-stack">
+    <div class="sr-only" aria-live="polite">{{ liveAnnouncement }}</div>
+
+    <header class="view-header">
+      <div class="view-title-group">
+        <h1 class="view-title" :title="datasetMeta?.name || `数据集 #${datasetId}`">
+          {{ datasetMeta?.name || `数据集 #${datasetId}` }}
+        </h1>
+        <span class="micro-badge mono">#{{ datasetId }}</span>
+        <span v-if="activeVersion" class="micro-badge mono">当前 v{{ activeVersion.versionNo }}</span>
       </div>
 
-      <div class="header-actions">
-        <el-button type="primary" @click="openImportDialog(false)">
-          <TdIcon name="upload" :size="15" style="margin-right: 6px" />
-          导入新版本
-        </el-button>
+      <div class="view-actions">
+        <button type="button" class="btn btn--secondary" @click="router.push('/datasets')">
+          <TdIcon name="arrow-left" :size="14" />
+          <span>返回列表</span>
+        </button>
+        <button type="button" class="btn btn--primary" @click="openImportDialog">
+          <TdIcon name="upload" :size="14" />
+          <span>导入新版本</span>
+        </button>
       </div>
+    </header>
+
+    <div v-if="loadError" class="error-banner" role="alert">
+      <span class="error-banner-body">
+        <TdIcon name="alert-circle" :size="15" />
+        <span>{{ loadError }}</span>
+      </span>
+      <button type="button" class="btn btn--secondary btn--sm" @click="loadVersionsAndCases">
+        <TdIcon name="refresh" :size="13" />
+        <span>重试</span>
+      </button>
     </div>
 
-    <!-- Empty versions state -->
-    <section v-if="!loadingVersions && versions.length === 0" class="td-surface empty-state">
-      <div class="empty-icon">
-        <TdIcon name="layers" :size="22" />
+    <div v-if="!versionsReady && !loadError">
+      <p v-if="showSlowHint" class="slow-loading" aria-live="polite">正在加载版本快照…</p>
+    </div>
+
+    <section v-else-if="versionsReady && versions.length === 0" class="empty-panel">
+      <div class="empty-panel-icon" aria-hidden="true">
+        <TdIcon name="layers" :size="18" />
       </div>
-      <h3>该数据集尚无版本快照</h3>
-      <p>
-        导入一批 JSONL、JSON 或 CSV 用例后，系统会自动生成不可变版本 <code class="td-mono">v1</code> 并为每条用例计算规范化 <code class="td-mono">case_hash</code>。
-      </p>
-      <div class="empty-actions">
-        <el-button type="primary" @click="openImportDialog(true)">
-          <TdIcon name="upload" :size="15" style="margin-right: 6px" />
-          使用示例导入 v1
-        </el-button>
-        <el-button @click="openImportDialog(false)">手动粘贴导入</el-button>
+      <h2>尚无版本快照</h2>
+      <p>导入 JSONL、JSON 或 CSV 文件以生成不可变版本 v1。</p>
+      <div class="empty-panel-actions">
+        <button type="button" class="btn btn--primary" @click="openImportDialog">
+          <TdIcon name="upload" :size="14" />
+          <span>导入首个版本</span>
+        </button>
       </div>
     </section>
 
-    <!-- Two-column version + cases workbench -->
-    <div v-else class="detail-grid">
-      <!-- Left: Immutable version history rail -->
-      <aside class="td-surface version-rail">
-        <div class="rail-header">
-          <span class="rail-title">版本快照</span>
-          <span class="rail-count td-mono">{{ versions.length }}</span>
+    <div v-else-if="versionsReady" class="detail-grid">
+      <aside class="list-panel version-panel" aria-label="不可变版本历史">
+        <div class="panel-head">
+          <div class="panel-head-left">
+            <span class="panel-head-title">版本历史</span>
+            <span class="micro-badge">
+              <TdIcon name="lock" :size="11" />
+              <span>不可变</span>
+            </span>
+          </div>
+          <span class="panel-head-meta mono">{{ versions.length }} 个</span>
         </div>
 
-        <div v-if="loadingVersions && versions.length === 0" class="rail-skeleton">
-          <el-skeleton :rows="4" animated />
-        </div>
-
-        <div v-else class="version-list" role="listbox" aria-label="数据集版本列表">
+        <div class="version-list" role="listbox" aria-label="选择要查看的只读版本">
           <button
             v-for="v in sortedVersions"
             :key="v.id"
             type="button"
-            class="version-item"
+            class="version-row"
             :class="{ 'is-active': selectedVersion === v.versionNo }"
             role="option"
             :aria-selected="selectedVersion === v.versionNo"
             @click="selectedVersion = v.versionNo"
           >
             <div class="version-top">
-              <span class="version-tag td-mono">v{{ v.versionNo }}</span>
-              <span class="version-cases td-num">{{ v.caseCount }} 条用例</span>
+              <div class="version-top-left">
+                <span class="version-no mono">v{{ v.versionNo }}</span>
+                <span v-if="v.versionNo === latestVersionNo" class="micro-badge">最新</span>
+                <span v-if="selectedVersion === v.versionNo" class="micro-badge is-current">当前</span>
+              </div>
+              <span class="version-count mono">{{ v.caseCount }} 条</span>
             </div>
-            <div class="version-note">{{ v.note || '无版本备注' }}</div>
-            <div class="version-time td-mono">{{ formatDateTime(v.createdAt) }}</div>
+            <div v-if="v.note && v.note.trim()" class="version-note" :title="v.note">
+              {{ v.note.trim() }}
+            </div>
+            <div class="version-date mono">{{ formatDateTime(v.createdAt) }}</div>
           </button>
-        </div>
-
-        <div class="rail-footer">
-          <TdIcon name="lock" :size="13" />
-          <span>历史版本不可修改，确保评测可复现</span>
         </div>
       </aside>
 
-      <!-- Right: Cases table -->
-      <section class="td-surface cases-panel">
-        <div class="td-toolbar">
-          <div class="td-toolbar-group search-group">
-            <!-- Compact version switcher on mobile -->
-            <el-select
-              v-model="selectedVersion"
-              class="mobile-version-select"
-              placeholder="选择版本"
-            >
-              <el-option
-                v-for="v in sortedVersions"
-                :key="v.id"
-                :label="`v${v.versionNo} (${v.caseCount} 条)`"
-                :value="v.versionNo"
-              />
-            </el-select>
-
-            <el-input
-              v-model="caseSearch"
-              placeholder="搜索 case_key、输入内容、参考答案或哈希..."
-              clearable
-              class="case-search-input"
-            >
-              <template #prefix>
-                <TdIcon name="search" :size="14" />
-              </template>
-            </el-input>
-          </div>
-
-          <div v-if="activeVersionObj" class="td-toolbar-group version-summary">
-            <span class="summary-text td-num">
-              当前 <strong>v{{ activeVersionObj.versionNo }}</strong> · 显示
-              <strong>{{ filteredCases.length }}</strong> / {{ cases.length }} 条
+      <section class="cases-column" aria-label="版本用例内容">
+        <div v-if="activeVersion" class="snapshot-bar">
+          <div class="snapshot-bar-info">
+            <span class="snapshot-version mono">v{{ activeVersion.versionNo }}</span>
+            <span class="micro-badge">
+              <TdIcon name="lock" :size="11" />
+              <span>只读快照</span>
+            </span>
+            <span class="snapshot-meta mono">{{ activeVersion.caseCount }} 条用例</span>
+            <span class="snapshot-meta mono">创建于 {{ formatDateTime(activeVersion.createdAt) }}</span>
+            <span v-if="activeVersion.note && activeVersion.note.trim()" class="snapshot-note">
+              · {{ activeVersion.note.trim() }}
             </span>
           </div>
+
+          <div class="snapshot-bar-action">
+            <button
+              v-if="previousVersion"
+              type="button"
+              class="btn btn--secondary btn--sm"
+              :aria-expanded="diffOpen"
+              @click="toggleLocalDiff"
+            >
+              <TdIcon name="git-compare" :size="13" />
+              <span>{{ diffOpen ? '收起版本变化' : `对比 v${previousVersion.versionNo}（本地）` }}</span>
+            </button>
+            <span v-else class="snapshot-initial-tag">初始版本</span>
+          </div>
         </div>
 
-        <div v-if="loadingCases" class="skeleton-wrap">
-          <el-skeleton :rows="6" animated />
-        </div>
+        <section v-if="diffOpen" class="local-diff-panel" aria-label="本地计算的版本变化摘要">
+          <div class="local-diff-head">
+            <span class="local-diff-title">
+              本地计算的版本变化摘要（v{{ previousVersion?.versionNo }} → v{{ activeVersion?.versionNo }}）
+            </span>
+            <span class="local-diff-source">基于已获取用例的 case_key 与 case_hash 本地比对</span>
+          </div>
 
-        <div v-else-if="filteredCases.length === 0" class="empty-state compact-empty">
-          <h3>没有匹配的用例</h3>
-          <p>尝试更换关键字或清空搜索条件。</p>
-          <el-button @click="caseSearch = ''">清空搜索</el-button>
-        </div>
+          <p v-if="diffLoading" class="local-diff-note">正在加载 v{{ previousVersion?.versionNo }} 用例…</p>
+          <p v-else-if="diffError" class="field-error-text" role="alert">{{ diffError }}</p>
+          <div v-else-if="localDiffSummary" class="local-diff-body">
+            <div class="local-diff-counts mono">
+              <span class="status-tag status-tag--success">新增 {{ localDiffSummary.added.length }}</span>
+              <span class="status-tag status-tag--warning">修改 {{ localDiffSummary.modified.length }}</span>
+              <span class="status-tag status-tag--danger">删除 {{ localDiffSummary.removed.length }}</span>
+              <span class="micro-badge">未变 {{ localDiffSummary.unchanged.length }}</span>
+            </div>
+            <div
+              v-if="
+                localDiffSummary.added.length === 0 &&
+                localDiffSummary.modified.length === 0 &&
+                localDiffSummary.removed.length === 0
+              "
+              class="local-diff-note"
+            >
+              两个版本的全部用例 case_key 与规范化哈希完全一致。
+            </div>
+            <div v-else class="local-diff-keys mono">
+              <div v-if="localDiffSummary.added.length">
+                新增：{{ localDiffSummary.added.join(', ') }}
+              </div>
+              <div v-if="localDiffSummary.modified.length">
+                修改：{{ localDiffSummary.modified.join(', ') }}
+              </div>
+              <div v-if="localDiffSummary.removed.length">
+                删除：{{ localDiffSummary.removed.join(', ') }}
+              </div>
+            </div>
+          </div>
+        </section>
 
-        <el-table
-          v-else
-          :data="filteredCases"
-          class="clickable-table"
-          @row-click="(row: DatasetCaseItem) => openInspector(row)"
-        >
-          <el-table-column label="Case Key" width="148">
-            <template #default="{ row }">
-              <span class="key-chip td-mono">{{ row.caseKey }}</span>
-            </template>
-          </el-table-column>
+        <div class="view-toolbar">
+          <div class="view-toolbar-group">
+            <label class="mobile-version-wrap">
+              <span class="sr-only">选择版本</span>
+              <el-select v-model="selectedVersion" class="mobile-version-select" placeholder="选择版本">
+                <el-option
+                  v-for="v in sortedVersions"
+                  :key="v.id"
+                  :label="`v${v.versionNo}（${v.caseCount} 条 · 只读）`"
+                  :value="v.versionNo"
+                />
+              </el-select>
+            </label>
 
-          <el-table-column label="输入摘要" min-width="240">
-            <template #default="{ row }">
-              <span class="input-summary">{{ summarizeInput(row.inputJson) }}</span>
-            </template>
-          </el-table-column>
-
-          <el-table-column label="断言" width="96">
-            <template #default="{ row }">
-              <span
-                class="td-pill td-num"
-                :class="assertionCount(row.assertionsJson) > 0 ? 'td-pill--accent' : 'td-pill--neutral'"
+            <div class="search-box search-box--sm">
+              <TdIcon name="search" :size="14" class="search-box-icon" />
+              <input
+                v-model="caseSearch"
+                type="search"
+                class="search-box-input"
+                placeholder="筛选 case_key、问题、参考答案或哈希…"
+                aria-label="筛选当前版本的用例"
+              />
+              <button
+                v-if="caseSearch"
+                type="button"
+                class="search-box-clear"
+                aria-label="清空用例筛选"
+                @click="caseSearch = ''"
               >
-                {{ assertionCount(row.assertionsJson) }} 项
-              </span>
-            </template>
-          </el-table-column>
+                <TdIcon name="x" :size="12" />
+              </button>
+            </div>
+          </div>
 
-          <el-table-column label="参考答案" min-width="190" show-overflow-tooltip>
-            <template #default="{ row }">
-              <span class="ref-text">{{ row.referenceAnswer || '—' }}</span>
-            </template>
-          </el-table-column>
+          <span v-if="casesReady" class="view-count mono" aria-live="polite">
+            {{ filteredCases.length }} / {{ cases.length }} 条
+          </span>
+        </div>
 
-          <el-table-column label="Case Hash" width="136">
-            <template #default="{ row }">
-              <el-tooltip :content="`点击复制完整哈希：${row.caseHash}`" placement="top">
-                <button
-                  type="button"
-                  class="hash-btn td-mono"
-                  @click.stop="copyText(row.caseHash, '已复制完整 SHA-256 哈希')"
-                >
-                  <span>{{ row.caseHash.slice(0, 8) }}</span>
-                  <TdIcon name="copy" :size="12" />
-                </button>
-              </el-tooltip>
-            </template>
-          </el-table-column>
+        <div v-if="!casesReady">
+          <p v-if="showSlowHint" class="slow-loading" aria-live="polite">正在加载用例列表…</p>
+        </div>
 
-          <el-table-column label="详情" width="84" align="right" fixed="right">
-            <template #default="{ row }">
-              <el-button link type="primary" @click.stop="openInspector(row)">查看</el-button>
-            </template>
-          </el-table-column>
-        </el-table>
+        <section v-else-if="cases.length === 0" class="empty-panel">
+          <h2>该版本暂无用例</h2>
+        </section>
+
+        <section v-else-if="filteredCases.length === 0" class="empty-panel">
+          <h2>无匹配用例</h2>
+          <p>当前筛选词「{{ caseSearch }}」在该版本中无匹配记录。</p>
+          <button type="button" class="btn btn--secondary btn--sm" @click="caseSearch = ''">清空筛选</button>
+        </section>
+
+        <div v-else class="data-table-wrap">
+          <table class="data-table" aria-label="版本用例列表">
+            <thead>
+              <tr>
+                <th scope="col">case_key</th>
+                <th scope="col">问题摘要与参考答案</th>
+                <th scope="col" class="col-num">断言</th>
+                <th scope="col">case_hash</th>
+                <th scope="col" class="col-actions">详情</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr v-for="item in filteredCases" :key="item.id">
+                <td class="cell-nowrap">
+                  <button
+                    type="button"
+                    class="case-key-btn mono"
+                    @click="openInspector(item)"
+                  >
+                    {{ item.caseKey }}
+                  </button>
+                </td>
+                <td class="case-summary-cell">
+                  <div class="case-question" :title="summarizeInput(item.inputJson)">
+                    {{ summarizeInput(item.inputJson) }}
+                  </div>
+                  <div v-if="item.referenceAnswer" class="table-subtext" :title="item.referenceAnswer">
+                    {{ item.referenceAnswer }}
+                  </div>
+                </td>
+                <td class="col-num mono">{{ assertionCount(item.assertionsJson) }} 项</td>
+                <td class="cell-nowrap">
+                  <button
+                    type="button"
+                    class="code-pill code-pill--copy"
+                    :class="{ 'is-copied': copiedHashId === item.id }"
+                    :title="`复制完整哈希：${item.caseHash}`"
+                    :aria-label="`复制 ${item.caseKey} 的完整 SHA-256 哈希`"
+                    @click="handleCopyHash(item, false)"
+                  >
+                    <span>{{ item.caseHash.slice(0, 8) }}</span>
+                    <TdIcon :name="copiedHashId === item.id ? 'check' : 'copy'" :size="12" class="code-pill-icon" />
+                  </button>
+                </td>
+                <td class="col-actions">
+                  <button
+                    type="button"
+                    class="btn btn--secondary btn--sm"
+                    :aria-label="`查看 ${item.caseKey} 完整内容`"
+                    @click="openInspector(item)"
+                  >
+                    查看
+                  </button>
+                </td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
       </section>
     </div>
 
-    <!-- Import version dialog -->
-    <el-dialog v-model="importVisible" title="导入新版本（不可变快照）" width="680px">
+    <el-dialog
+      v-model="importVisible"
+      title="导入新版本"
+      width="680px"
+      :before-close="handleImportBeforeClose"
+      @opened="onImportDialogOpened"
+    >
+      <div
+        v-if="importServerError"
+        ref="importAlertRef"
+        class="form-alert"
+        role="alert"
+        tabindex="-1"
+      >
+        <TdIcon name="alert-circle" :size="15" />
+        <span>服务端校验未通过：{{ importServerError }}</span>
+      </div>
+
+      <div
+        v-else-if="showValidationErrors"
+        ref="importAlertRef"
+        class="validation-summary"
+        role="alert"
+        tabindex="-1"
+      >
+        <div class="validation-summary-head">
+          <TdIcon name="alert-circle" :size="15" />
+          <span>本地预检发现 {{ validationResult.issues.length }} 处问题，修复后方可提交</span>
+        </div>
+        <ul class="validation-issue-list">
+          <li v-for="(issue, idx) in validationResult.issues.slice(0, 8)" :key="idx">
+            <button
+              type="button"
+              class="issue-jump-btn"
+              @click="jumpToEditorLine(issue.line)"
+            >
+              <span class="mono issue-loc">
+                第 {{ issue.line }} 行<template v-if="issue.column"> 列 {{ issue.column }}</template>
+              </span>
+              <span>{{ issue.message }}</span>
+            </button>
+          </li>
+        </ul>
+        <p v-if="validationResult.issues.length > 8" class="validation-more">
+          其余 {{ validationResult.issues.length - 8 }} 处问题将在修复前序错误后更新。
+        </p>
+      </div>
+
       <el-form label-position="top">
-        <el-form-item label="数据格式">
-          <div class="format-bar">
-            <el-radio-group v-model="importForm.format">
-              <el-radio-button value="JSONL">JSONL</el-radio-button>
-              <el-radio-button value="JSON">JSON 数组</el-radio-button>
-              <el-radio-button value="CSV">CSV（两列）</el-radio-button>
-            </el-radio-group>
-            <el-button link type="primary" @click="fillSample">
-              <TdIcon name="code" :size="14" style="margin-right: 4px" />
-              填入 {{ importForm.format }} 示例
-            </el-button>
+        <el-form-item label="导入格式">
+          <div class="import-format-row">
+            <div class="seg-control seg-control--sm" role="radiogroup" aria-label="选择导入格式">
+              <button
+                v-for="fmt in (['JSONL', 'JSON', 'CSV'] as const)"
+                :key="fmt"
+                type="button"
+                role="radio"
+                class="seg-btn"
+                :class="{ 'is-active': importForm.format === fmt }"
+                :aria-checked="importForm.format === fmt"
+                @click="setImportFormat(fmt)"
+              >
+                {{ fmt }}
+              </button>
+            </div>
+            <button type="button" class="btn btn--secondary btn--sm" @click="fillSample">
+              <TdIcon name="code" :size="13" />
+              <span>填入 {{ importForm.format }} 示例</span>
+            </button>
           </div>
+          <p class="field-help-text">
+            <template v-if="importForm.format === 'JSONL'">
+              每行一个 JSON 对象，必填 <span class="mono">case_key</span>（批内忽略大小写唯一）与对象类型 <span class="mono">input</span>。
+            </template>
+            <template v-else-if="importForm.format === 'JSON'">
+              顶层为 JSON 数组，每项必填 <span class="mono">case_key</span> 与对象类型 <span class="mono">input</span>。
+            </template>
+            <template v-else>
+              首行表头须为 <span class="mono">question,reference_answer</span>，每行两列（含逗号请用双引号包裹），导入时自动生成 <span class="mono">case-0001</span> 序号。
+            </template>
+          </p>
         </el-form-item>
 
-        <el-form-item label="版本备注">
-          <el-input
-            v-model="importForm.note"
-            maxlength="255"
-            placeholder="例如：补充退款边界用例与 JSON 格式断言"
-          />
+        <el-form-item label="版本备注（可选）">
+          <el-input v-model="importForm.note" placeholder="例如：补充边界断言与异常用例" maxlength="200" />
         </el-form-item>
 
         <el-form-item label="用例内容" required>
-          <el-input
-            v-model="importForm.content"
-            type="textarea"
-            :rows="10"
-            class="code-textarea"
-            placeholder="粘贴 JSONL / JSON 数组 / CSV（首行 question,reference_answer）内容"
-          />
-          <div class="editor-meta td-num">
-            <span>非空行数：{{ nonEmptyLineCount }}</span>
-            <span>批内出现重复 case_key 时整批原子回滚</span>
+          <div class="code-editor-shell" :class="{ 'has-error': showValidationErrors }">
+            <div ref="importGutterRef" class="code-editor-gutter mono" aria-hidden="true">
+              <div
+                v-for="lineNo in totalEditorLines"
+                :key="lineNo"
+                class="gutter-line"
+                :class="{ 'is-error-line': showValidationErrors && errorLineSet.has(lineNo) }"
+              >
+                {{ lineNo }}
+              </div>
+            </div>
+            <textarea
+              ref="importTextareaRef"
+              v-model="importForm.content"
+              class="code-editor-textarea mono"
+              rows="10"
+              spellcheck="false"
+              :placeholder="`在此粘贴 ${importForm.format} 内容…`"
+              aria-label="待导入用例内容"
+              :aria-invalid="showValidationErrors"
+              @input="onEditorInput"
+              @blur="onEditorBlur"
+              @scroll="syncEditorScroll"
+            />
+          </div>
+
+          <div class="editor-status-bar">
+            <span class="mono">非空行：{{ nonEmptyLineCount }}</span>
+            <span v-if="importForm.content.trim() && validationResult.valid" class="status-tag status-tag--success">
+              <TdIcon name="check-circle" :size="12" />
+              <span>本地预检通过 · 解析 {{ validationResult.cases.length }} 条</span>
+            </span>
+            <span v-else-if="showValidationErrors" class="status-tag status-tag--danger">
+              <TdIcon name="alert-circle" :size="12" />
+              <span>本地预检未通过（{{ validationResult.issues.length }} 处错误）</span>
+            </span>
           </div>
         </el-form-item>
       </el-form>
+
+      <div v-if="importForm.content.trim() && validationResult.valid" class="import-preview-bar">
+        <div class="import-preview-title">
+          <TdIcon name="info" :size="14" />
+          <span>
+            即将创建不可变新版本（预计 <span class="mono">v{{ latestVersionNo + 1 }}</span>，共
+            <span class="mono">{{ validationResult.cases.length }}</span> 条用例<template v-if="importForm.note.trim()"> · 备注：{{ importForm.note.trim() }}</template>）
+          </span>
+        </div>
+        <div class="import-preview-note">
+          此结果仅代表浏览器本地预检；最终版本号、入库条数与规范化 SHA-256 哈希以服务端响应为准。
+        </div>
+      </div>
+
       <template #footer>
-        <el-button @click="importVisible = false">取消</el-button>
-        <el-button type="primary" :loading="importing" @click="handleImport">
-          导入并生成新版本
-        </el-button>
+        <div class="dialog-footer">
+          <button
+            type="button"
+            class="btn btn--secondary btn--sm"
+            :disabled="importing"
+            @click="requestCloseImport"
+          >
+            取消
+          </button>
+          <button
+            type="button"
+            class="btn btn--primary btn--sm"
+            :disabled="!canSubmitImport"
+            :aria-busy="importing"
+            :title="!canSubmitImport && !importing ? '请先输入并通过本地格式校验' : undefined"
+            @click="handleImport"
+          >
+            {{ importing ? '正在提交服务端…' : '确认导入新版本' }}
+          </button>
+        </div>
       </template>
     </el-dialog>
 
-    <!-- Case inspector drawer -->
     <el-drawer
       v-model="inspectorVisible"
-      :title="inspectingCase ? `用例快照 · ${inspectingCase.caseKey}` : '用例快照'"
+      :title="inspectingCase ? `只读用例 · ${inspectingCase.caseKey}` : '只读用例详情'"
       size="540px"
     >
-      <div v-if="inspectingCase" class="inspector-body">
-        <div class="inspector-meta-grid">
+      <div v-if="inspectingCase" class="drawer-stack">
+        <div class="readonly-banner">
+          <TdIcon name="lock" :size="13" />
+          <span>
+            属于 <span class="mono">v{{ activeVersion?.versionNo }}</span> 不可变快照，仅供核查与复制，不可原地修改。
+          </span>
+        </div>
+
+        <div class="meta-grid">
           <div class="meta-cell">
-            <span class="meta-label">Case Key</span>
-            <span class="meta-value td-mono">{{ inspectingCase.caseKey }}</span>
+            <span class="meta-label">case_key</span>
+            <span class="meta-val mono">{{ inspectingCase.caseKey }}</span>
           </div>
           <div class="meta-cell">
-            <span class="meta-label">SHA-256 Case Hash</span>
+            <span class="meta-label">断言数量</span>
+            <span class="meta-val mono">{{ assertionCount(inspectingCase.assertionsJson) }} 项</span>
+          </div>
+        </div>
+
+        <div class="code-box">
+          <div class="code-box-head">
+            <span>完整 case_hash（SHA-256）</span>
             <button
               type="button"
-              class="hash-copy-inline td-mono"
-              @click="copyText(inspectingCase.caseHash, '已复制完整 Case Hash')"
+              class="code-box-copy"
+              @click="handleCopyHash(inspectingCase, true)"
             >
-              <span>{{ inspectingCase.caseHash.slice(0, 16) }}…</span>
-              <TdIcon name="copy" :size="12" />
+              <TdIcon :name="inspectorHashCopied ? 'check' : 'copy'" :size="12" />
+              <span>{{ inspectorHashCopied ? '已复制' : '复制完整哈希' }}</span>
             </button>
           </div>
+          <pre class="code-box-pre mono hash-full">{{ inspectingCase.caseHash }}</pre>
         </div>
 
-        <div class="code-section">
-          <div class="code-section-head">
-            <span>Input（输入变量 JSON）</span>
+        <div class="code-box">
+          <div class="code-box-head">
+            <span>Input</span>
             <button
               type="button"
-              class="copy-mini"
-              @click="copyText(prettyJson(inspectingCase.inputJson))"
+              class="code-box-copy"
+              @click="copyText(prettyJson(inspectingCase.inputJson), '已复制 Input JSON')"
             >
               <TdIcon name="copy" :size="12" />
-              复制
+              <span>复制</span>
             </button>
           </div>
-          <pre class="code-block td-mono">{{ prettyJson(inspectingCase.inputJson) }}</pre>
+          <pre class="code-box-pre mono">{{ prettyJson(inspectingCase.inputJson) }}</pre>
         </div>
 
-        <div v-if="inspectingCase.referenceAnswer" class="code-section">
-          <div class="code-section-head">
-            <span>Reference Answer（参考答案）</span>
-          </div>
-          <pre class="code-block">{{ inspectingCase.referenceAnswer }}</pre>
+        <div v-if="inspectingCase.referenceAnswer" class="code-box">
+          <div class="code-box-head"><span>Reference Answer</span></div>
+          <pre class="code-box-pre">{{ inspectingCase.referenceAnswer }}</pre>
         </div>
 
-        <div class="code-section">
-          <div class="code-section-head">
-            <span>Assertions（断言规则）</span>
-            <span class="td-mono">{{ assertionCount(inspectingCase.assertionsJson) }} 项</span>
+        <div class="code-box">
+          <div class="code-box-head">
+            <span>Assertions</span>
+            <span class="mono">{{ assertionCount(inspectingCase.assertionsJson) }} 项</span>
           </div>
-          <pre class="code-block td-mono">{{ prettyJson(inspectingCase.assertionsJson) }}</pre>
+          <pre class="code-box-pre mono">{{ prettyJson(inspectingCase.assertionsJson) }}</pre>
         </div>
 
-        <div v-if="inspectingCase.messagesJson" class="code-section">
-          <div class="code-section-head">
-            <span>Messages（多轮对话上下文）</span>
-          </div>
-          <pre class="code-block td-mono">{{ prettyJson(inspectingCase.messagesJson) }}</pre>
+        <div v-if="inspectingCase.messagesJson" class="code-box">
+          <div class="code-box-head"><span>Messages</span></div>
+          <pre class="code-box-pre mono">{{ prettyJson(inspectingCase.messagesJson) }}</pre>
         </div>
 
-        <div v-if="inspectingCase.expectedDocIdsJson" class="code-section">
-          <div class="code-section-head">
-            <span>Expected Doc IDs（RAG 标准片段）</span>
-          </div>
-          <pre class="code-block td-mono">{{ prettyJson(inspectingCase.expectedDocIdsJson) }}</pre>
+        <div v-if="inspectingCase.expectedDocIdsJson" class="code-box">
+          <div class="code-box-head"><span>Expected Doc IDs</span></div>
+          <pre class="code-box-pre mono">{{ prettyJson(inspectingCase.expectedDocIdsJson) }}</pre>
         </div>
 
-        <div v-if="inspectingCase.tagsJson" class="code-section">
-          <div class="code-section-head">
-            <span>Tags（不参与 case_hash 计算）</span>
-          </div>
-          <pre class="code-block td-mono">{{ prettyJson(inspectingCase.tagsJson) }}</pre>
+        <div v-if="inspectingCase.tagsJson" class="code-box">
+          <div class="code-box-head"><span>Tags</span></div>
+          <pre class="code-box-pre mono">{{ prettyJson(inspectingCase.tagsJson) }}</pre>
         </div>
       </div>
     </el-drawer>
@@ -535,114 +997,86 @@ onMounted(() => {
 </template>
 
 <style scoped>
-.header-main {
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-}
-
-.back-btn {
-  appearance: none;
-  border: none;
-  background: transparent;
-  padding: 0;
-  color: var(--td-text-muted);
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  font-family: inherit;
-  font-size: var(--td-text-xs);
-  font-weight: 500;
-  cursor: pointer;
-  width: fit-content;
-}
-
-.back-btn:hover {
-  color: var(--td-accent);
-}
-
-.title-row {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  flex-wrap: wrap;
-}
-
-.id-badge {
-  font-size: var(--td-text-xs);
-  color: var(--td-text-muted);
-}
-
 .detail-grid {
   display: grid;
-  grid-template-columns: 268px minmax(0, 1fr);
+  grid-template-columns: 248px minmax(0, 1fr);
   gap: 16px;
   align-items: start;
 }
 
-.version-rail {
+.version-panel {
   display: flex;
   flex-direction: column;
-  overflow: hidden;
 }
 
-.rail-header {
+.panel-head {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 12px 14px;
-  border-bottom: 1px solid var(--td-border-subtle);
+  gap: 8px;
+  padding: 11px 14px;
+  border-bottom: 1px solid var(--td-border);
+  background-color: var(--td-bg-subtle);
 }
 
-.rail-title {
-  font-size: var(--td-text-sm);
+.panel-head-left {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.panel-head-title {
+  font-size: 13px;
   font-weight: 600;
   color: var(--td-text-primary);
 }
 
-.rail-count {
-  font-size: var(--td-text-xs);
-  color: var(--td-text-muted);
-  padding: 1px 7px;
-  border-radius: 999px;
-  background-color: var(--td-bg-subtle);
-  border: 1px solid var(--td-border-subtle);
-}
-
-.rail-skeleton {
-  padding: 14px;
+.panel-head-meta {
+  font-size: 12px;
+  color: var(--td-text-secondary);
 }
 
 .version-list {
   display: flex;
   flex-direction: column;
-  padding: 8px;
-  gap: 4px;
   max-height: 560px;
   overflow-y: auto;
 }
 
-.version-item {
+.version-row {
+  position: relative;
   appearance: none;
-  width: 100%;
-  text-align: left;
-  padding: 10px 12px;
-  border-radius: var(--td-radius-sm);
-  border: 1px solid transparent;
+  border: none;
+  border-bottom: 1px solid var(--td-border);
   background: transparent;
+  width: 100%;
+  padding: 12px 14px;
+  text-align: left;
   cursor: pointer;
   font-family: inherit;
-  transition: background-color var(--td-duration-fast) var(--td-ease-out),
-    border-color var(--td-duration-fast) var(--td-ease-out);
+  transition: background-color var(--dur-fast) var(--ease);
 }
 
-.version-item:hover {
-  background-color: var(--td-bg-hover);
+.version-row:last-child {
+  border-bottom: none;
 }
 
-.version-item.is-active {
-  background-color: var(--td-accent-soft);
-  border-color: var(--td-accent-border);
+.version-row:hover {
+  background-color: var(--td-bg-row-hover);
+}
+
+.version-row.is-active {
+  background-color: var(--td-bg-subtle);
+}
+
+.version-row.is-active::before {
+  content: '';
+  position: absolute;
+  left: 0;
+  top: 0;
+  bottom: 0;
+  width: 3px;
+  background-color: var(--td-text-primary);
 }
 
 .version-top {
@@ -652,305 +1086,442 @@ onMounted(() => {
   gap: 8px;
 }
 
-.version-tag {
-  font-size: var(--td-text-sm);
+.version-top-left {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.version-no {
+  font-size: 13.5px;
   font-weight: 600;
   color: var(--td-text-primary);
 }
 
-.version-item.is-active .version-tag {
-  color: var(--td-accent);
+.micro-badge.is-current {
+  border-color: var(--td-border-strong);
+  background-color: var(--td-bg-surface);
+  color: var(--td-text-primary);
 }
 
-.version-cases {
-  font-size: var(--td-text-xs);
+.version-count {
+  font-size: 12px;
   color: var(--td-text-secondary);
+  white-space: nowrap;
 }
 
 .version-note {
   margin-top: 4px;
-  font-size: var(--td-text-xs);
-  color: var(--td-text-secondary);
+  font-size: 12.5px;
+  color: var(--td-text-primary);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
-.version-time {
+.version-date {
   margin-top: 4px;
-  font-size: 11px;
-  color: var(--td-text-muted);
+  font-size: 12px;
+  color: var(--td-text-secondary);
 }
 
-.rail-footer {
-  padding: 10px 14px;
-  border-top: 1px solid var(--td-border-subtle);
-  background-color: var(--td-bg-subtle);
+.cases-column {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.snapshot-bar {
   display: flex;
   align-items: center;
-  gap: 6px;
-  font-size: 11px;
-  color: var(--td-text-muted);
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+  min-height: 54px;
+  padding: 10px 14px;
+  border-radius: var(--radius-md);
+  background-color: var(--td-bg-surface);
+  border: 1px solid var(--td-border);
 }
 
-.cases-panel {
+.snapshot-bar-action {
+  display: inline-flex;
+  align-items: center;
+  min-height: var(--ctrl-sm);
+  flex-shrink: 0;
+}
+
+.snapshot-initial-tag {
+  font-size: 12px;
+  color: var(--td-text-secondary);
+  padding: 0 4px;
+  white-space: nowrap;
+}
+
+.snapshot-bar-info {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
   min-width: 0;
-  overflow: hidden;
 }
 
-.search-group {
-  flex: 1;
-  min-width: 220px;
+.snapshot-version {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--td-text-primary);
 }
 
-.case-search-input {
-  max-width: 360px;
+.snapshot-meta {
+  font-size: 12.5px;
+  color: var(--td-text-secondary);
+}
+
+.snapshot-note {
+  font-size: 13px;
+  color: var(--td-text-secondary);
+}
+
+.local-diff-panel {
+  padding: 12px 14px;
+  border-radius: var(--radius-md);
+  background-color: var(--td-bg-surface);
+  border: 1px solid var(--td-border-strong);
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.local-diff-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.local-diff-title {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--td-text-primary);
+}
+
+.local-diff-source {
+  font-size: 12px;
+  color: var(--td-text-secondary);
+}
+
+.local-diff-body {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.local-diff-counts {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.local-diff-keys {
+  font-size: 12px;
+  color: var(--td-text-secondary);
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.local-diff-note {
+  margin: 0;
+  font-size: 12.5px;
+  color: var(--td-text-secondary);
+}
+
+.mobile-version-wrap {
+  display: none;
 }
 
 .mobile-version-select {
-  display: none;
-  width: 160px;
+  width: 180px;
 }
 
-.summary-text {
-  font-size: var(--td-text-xs);
-  color: var(--td-text-muted);
+.cell-nowrap {
+  white-space: nowrap;
 }
 
-.summary-text strong {
+.case-key-btn {
+  appearance: none;
+  border: none;
+  background: transparent;
+  padding: 2px 4px;
+  margin: -2px -4px;
+  border-radius: var(--radius-xs);
   color: var(--td-text-primary);
-}
-
-.clickable-table :deep(.el-table__row) {
+  font-size: 13px;
+  font-weight: 600;
   cursor: pointer;
+  text-align: left;
 }
 
-.key-chip {
-  display: inline-block;
-  padding: 2px 7px;
-  border-radius: var(--td-radius-xs);
-  background-color: var(--td-bg-subtle);
-  border: 1px solid var(--td-border-subtle);
-  font-size: var(--td-text-xs);
-  color: var(--td-text-primary);
+.case-key-btn:hover {
+  text-decoration: underline;
+  text-underline-offset: 3px;
 }
 
-.input-summary {
+.case-summary-cell {
+  min-width: 220px;
+  max-width: 460px;
+}
+
+.case-question {
+  font-size: 13.5px;
   color: var(--td-text-primary);
-  font-size: var(--td-text-sm);
+  line-height: 1.45;
   display: -webkit-box;
   -webkit-line-clamp: 2;
   -webkit-box-orient: vertical;
   overflow: hidden;
 }
 
-.ref-text {
-  color: var(--td-text-secondary);
-  font-size: var(--td-text-sm);
-}
-
-.hash-btn {
-  appearance: none;
-  border: 1px solid var(--td-border-subtle);
-  background-color: var(--td-bg-subtle);
-  color: var(--td-text-secondary);
-  border-radius: var(--td-radius-xs);
-  padding: 2px 7px;
-  font-size: var(--td-text-xs);
-  display: inline-flex;
+/* Import editor with synchronized line gutter */
+.import-format-row {
+  display: flex;
   align-items: center;
-  gap: 5px;
-  cursor: pointer;
-  transition: border-color var(--td-duration-fast) var(--td-ease-out),
-    color var(--td-duration-fast) var(--td-ease-out);
+  justify-content: space-between;
+  width: 100%;
+  gap: 10px;
+  flex-wrap: wrap;
 }
 
-.hash-btn:hover {
-  border-color: var(--td-accent-border);
-  color: var(--td-accent);
-}
-
-.skeleton-wrap {
-  padding: 20px;
-}
-
-.empty-state {
-  padding: 56px 24px;
-  text-align: center;
+.validation-summary {
+  margin-bottom: 14px;
+  padding: 10px 12px;
+  border-radius: var(--radius-sm);
+  background-color: var(--td-danger-bg);
+  border: 1px solid var(--td-danger-border);
+  color: var(--td-danger-text);
   display: flex;
   flex-direction: column;
+  gap: 8px;
+}
+
+.validation-summary-head {
+  display: flex;
   align-items: center;
-  gap: 10px;
-}
-
-.compact-empty {
-  padding: 40px 24px;
-}
-
-.empty-icon {
-  width: 44px;
-  height: 44px;
-  border-radius: var(--td-radius-md);
-  background-color: var(--td-bg-subtle);
-  border: 1px solid var(--td-border-subtle);
-  color: var(--td-text-muted);
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  margin-bottom: 4px;
-}
-
-.empty-state h3 {
-  margin: 0;
-  font-size: var(--td-text-md);
+  gap: 7px;
+  font-size: 13px;
   font-weight: 600;
+}
+
+.validation-issue-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.issue-jump-btn {
+  appearance: none;
+  width: 100%;
+  border: 1px solid transparent;
+  border-radius: var(--radius-xs);
+  background: transparent;
+  color: var(--td-danger-text);
+  padding: 4px 6px;
+  text-align: left;
+  font-family: inherit;
+  font-size: 12.5px;
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  cursor: pointer;
+}
+
+.issue-jump-btn:hover {
+  background-color: var(--td-bg-surface);
+  border-color: var(--td-danger-border);
+}
+
+.issue-loc {
+  flex-shrink: 0;
+  font-weight: 600;
+}
+
+.validation-more {
+  margin: 0;
+  font-size: 12px;
+}
+
+.code-editor-shell {
+  width: 100%;
+  display: flex;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--td-border-strong);
+  background-color: var(--td-bg-surface);
+  overflow: hidden;
+  transition: border-color var(--dur-fast) var(--ease);
+}
+
+.code-editor-shell:focus-within {
+  border-color: var(--td-focus);
+  box-shadow: 0 0 0 1px var(--td-focus);
+}
+
+.code-editor-shell.has-error {
+  border-color: var(--td-danger);
+}
+
+.code-editor-gutter {
+  width: 42px;
+  flex-shrink: 0;
+  padding: 10px 6px 10px 0;
+  background-color: var(--td-bg-subtle);
+  border-right: 1px solid var(--td-border);
+  text-align: right;
+  font-size: 12px;
+  line-height: 20px;
+  color: var(--td-text-secondary);
+  user-select: none;
+  max-height: 230px;
+  overflow: hidden;
+}
+
+.gutter-line {
+  height: 20px;
+  padding-right: 4px;
+}
+
+.gutter-line.is-error-line {
+  background-color: var(--td-danger-bg);
+  color: var(--td-danger-text);
+  font-weight: 600;
+}
+
+.code-editor-textarea {
+  flex: 1;
+  min-width: 0;
+  height: 230px;
+  padding: 10px 12px;
+  border: none;
+  resize: vertical;
+  background-color: transparent;
+  color: var(--td-text-primary);
+  font-size: 12.5px;
+  line-height: 20px;
+  white-space: pre;
+  overflow: auto;
+}
+
+.code-editor-textarea:focus {
+  outline: none;
+}
+
+.code-editor-textarea::placeholder {
+  color: var(--td-text-muted);
+}
+
+.editor-status-bar {
+  width: 100%;
+  margin-top: 8px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  flex-wrap: wrap;
+  font-size: 12px;
+  color: var(--td-text-secondary);
+}
+
+.import-preview-bar {
+  padding: 10px 12px;
+  border-radius: var(--radius-sm);
+  background-color: var(--td-bg-subtle);
+  border: 1px solid var(--td-border);
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.import-preview-title {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 13px;
+  font-weight: 500;
   color: var(--td-text-primary);
 }
 
-.empty-state p {
-  margin: 0 0 8px;
-  font-size: var(--td-text-sm);
+.import-preview-note {
+  font-size: 12px;
   color: var(--td-text-secondary);
-  max-width: 50ch;
-}
-
-.empty-actions {
-  display: flex;
-  gap: 10px;
-  flex-wrap: wrap;
-}
-
-.format-bar {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  width: 100%;
-  gap: 12px;
-  flex-wrap: wrap;
-}
-
-.code-textarea :deep(.el-textarea__inner) {
-  font-family: var(--td-font-mono);
-  font-size: 12.5px;
-  line-height: 1.55;
-}
-
-.editor-meta {
-  width: 100%;
-  margin-top: 6px;
-  display: flex;
-  justify-content: space-between;
-  font-size: var(--td-text-xs);
-  color: var(--td-text-muted);
 }
 
 /* Inspector drawer */
-.inspector-body {
+.drawer-stack {
   display: flex;
   flex-direction: column;
-  gap: 16px;
+  gap: 14px;
 }
 
-.inspector-meta-grid {
+.readonly-banner {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 9px 12px;
+  border-radius: var(--radius-sm);
+  background-color: var(--td-bg-subtle);
+  border: 1px solid var(--td-border);
+  font-size: 12.5px;
+  color: var(--td-text-secondary);
+}
+
+.meta-grid {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 10px;
+  gap: 8px;
 }
 
 .meta-cell {
-  padding: 10px 12px;
-  border-radius: var(--td-radius-sm);
+  padding: 9px 11px;
+  border-radius: var(--radius-sm);
   background-color: var(--td-bg-subtle);
-  border: 1px solid var(--td-border-subtle);
+  border: 1px solid var(--td-border);
   display: flex;
   flex-direction: column;
   gap: 4px;
 }
 
 .meta-label {
-  font-size: 11px;
-  color: var(--td-text-muted);
+  font-size: 12px;
+  color: var(--td-text-secondary);
 }
 
-.meta-value {
-  font-size: var(--td-text-sm);
+.meta-val {
+  font-size: 13px;
   font-weight: 600;
   color: var(--td-text-primary);
 }
 
-.hash-copy-inline {
-  appearance: none;
-  border: none;
-  background: transparent;
-  padding: 0;
-  color: var(--td-accent);
-  font-size: var(--td-text-xs);
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  cursor: pointer;
-  width: fit-content;
+.hash-full {
+  word-break: break-all;
 }
 
-.code-section {
-  border-radius: var(--td-radius-sm);
-  border: 1px solid var(--td-border-subtle);
-  background-color: var(--td-bg-code);
-  overflow: hidden;
-}
-
-.code-section-head {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  padding: 7px 12px;
-  background-color: var(--td-bg-code-header);
-  border-bottom: 1px solid var(--td-border-subtle);
-  font-size: var(--td-text-xs);
-  font-weight: 500;
-  color: var(--td-text-secondary);
-}
-
-.copy-mini {
-  appearance: none;
-  border: none;
-  background: transparent;
-  color: var(--td-text-muted);
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
-  font-family: inherit;
-  font-size: var(--td-text-xs);
-  cursor: pointer;
-}
-
-.copy-mini:hover {
-  color: var(--td-accent);
-}
-
-.code-block {
-  margin: 0;
-  padding: 12px;
-  font-size: 12.5px;
-  line-height: 1.6;
-  color: var(--td-text-primary);
-  white-space: pre-wrap;
-  word-break: break-word;
-  max-height: 260px;
-  overflow-y: auto;
-}
-
-@media (max-width: 980px) {
+@media (max-width: 960px) {
   .detail-grid {
     grid-template-columns: 1fr;
   }
 
-  .version-rail {
+  .version-panel {
     display: none;
   }
 
-  .mobile-version-select {
-    display: inline-block;
+  .mobile-version-wrap {
+    display: inline-flex;
   }
 }
 </style>

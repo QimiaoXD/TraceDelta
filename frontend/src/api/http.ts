@@ -27,22 +27,28 @@ http.interceptors.response.use(
   (response) => {
     const body = response.data as ApiResponse<unknown>
     if (body && body.success === false) {
-      ElMessage.error(body.message || '请求失败')
-      return Promise.reject(new Error(body.message || '请求失败'))
+      const msg = body.message || '请求失败'
+      if (!response.config.url?.includes('/auth/login')) {
+        ElMessage.error(msg)
+      }
+      return Promise.reject(new Error(msg))
     }
     return response
   },
   (error) => {
     const status = error?.response?.status
+    const isLoginReq = Boolean(error?.config?.url?.includes('/auth/login'))
     const msg = error?.response?.data?.message || error.message || '网络请求异常'
-    if (status === 401) {
+    if (status === 401 && !isLoginReq) {
       localStorage.removeItem(TOKEN_KEY)
       localStorage.removeItem('tracedelta_username')
       if (window.location.pathname !== '/login') {
         window.location.href = '/login'
       }
     }
-    ElMessage.error(msg)
+    if (!isLoginReq) {
+      ElMessage.error(msg)
+    }
     return Promise.reject(error)
   },
 )

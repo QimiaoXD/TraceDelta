@@ -1,17 +1,26 @@
 <script setup lang="ts">
-import { computed, onMounted, reactive, ref } from 'vue'
-import { useRouter } from 'vue-router'
-import { ElMessage } from 'element-plus'
-import { createDatasetApi, listDatasetsApi, type DatasetItem } from '../api/dataset'
+import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref } from 'vue'
+import { ElMessage, ElMessageBox } from 'element-plus'
+import { createDatasetApi, deleteDatasetApi, type DatasetItem } from '../api/dataset'
+import { useConsoleDataStore } from '../stores/consoleData'
 import TdIcon from '../components/TdIcon.vue'
 import { formatDateTime } from '../utils/format'
 
-const router = useRouter()
-const datasets = ref<DatasetItem[]>([])
-const loading = ref(false)
+const store = useConsoleDataStore()
+
+const datasets = computed(() => store.datasets)
 const keyword = ref('')
+const loadError = ref('')
+const liveAnnouncement = ref('')
+
+const showSlowHint = ref(false)
+let slowTimer: number | null = null
+
 const dialogVisible = ref(false)
 const submitting = ref(false)
+const formError = ref('')
+const nameInputRef = ref<{ focus?: () => void } | null>(null)
+const formAlertRef = ref<HTMLElement | null>(null)
 
 const form = reactive({
   name: '',
@@ -29,272 +38,390 @@ const filteredDatasets = computed(() => {
   )
 })
 
-async function loadDatasets() {
-  loading.value = true
+function getVersionSummary(item: DatasetItem) {
+  const cached = store.getCachedVersions(item.id)
+  if (cached === undefined) {
+    return {
+      versionLabel: store.isVersionFetchFailed(item.id) ? '读取失败' : '—',
+      caseCountLabel: '—',
+      updatedAt: item.createdAt,
+      hasVersion: false,
+      isUnimported: false,
+    }
+  }
+  if (cached.length === 0) {
+    return {
+      versionLabel: '未导入',
+      caseCountLabel: '0 条',
+      updatedAt: item.createdAt,
+      hasVersion: false,
+      isUnimported: true,
+    }
+  }
+  const latest = cached.reduce((acc, cur) => (cur.versionNo > acc.versionNo ? cur : acc), cached[0])
+  return {
+    versionLabel: `v${latest.versionNo}`,
+    caseCountLabel: `${latest.caseCount} 条`,
+    updatedAt: latest.createdAt || item.createdAt,
+    hasVersion: true,
+    isUnimported: false,
+  }
+}
+
+async function refresh() {
+  loadError.value = ''
+  if (!store.datasetsLoaded) {
+    slowTimer = window.setTimeout(() => {
+      showSlowHint.value = true
+    }, 180)
+  }
   try {
-    datasets.value = await listDatasetsApi()
+    const list = await store.fetchDatasets()
+    store.prefetchVersionSummaries(list.map((d) => d.id))
+  } catch (err) {
+    loadError.value = err instanceof Error ? err.message : '加载数据集列表失败'
   } finally {
-    loading.value = false
+    if (slowTimer !== null) {
+      window.clearTimeout(slowTimer)
+      slowTimer = null
+    }
+    showSlowHint.value = false
   }
 }
 
 function openCreateDialog() {
+  formError.value = ''
   form.name = ''
   form.description = ''
   dialogVisible.value = true
 }
 
+function onDialogOpened() {
+  nextTick(() => {
+    nameInputRef.value?.focus?.()
+  })
+}
+
+async function handleDialogBeforeClose(done: () => void) {
+  if (submitting.value) return
+  if (form.name.trim() || form.description.trim()) {
+    try {
+      await ElMessageBox.confirm('当前有未保存的输入内容，确定关闭吗？', '放弃新建', {
+        confirmButtonText: '放弃并关闭',
+        cancelButtonText: '继续填写',
+        type: 'warning',
+      })
+      done()
+    } catch {
+      // keep dialog open
+    }
+    return
+  }
+  done()
+}
+
+async function requestCloseDialog() {
+  await handleDialogBeforeClose(() => {
+    dialogVisible.value = false
+  })
+}
+
 async function handleCreate() {
+  if (submitting.value) return
+  formError.value = ''
   if (!form.name.trim()) {
-    ElMessage.warning('请输入数据集名称')
+    formError.value = '请输入数据集名称'
+    await nextTick()
+    nameInputRef.value?.focus?.()
     return
   }
   submitting.value = true
   try {
     const created = await createDatasetApi(form.name.trim(), form.description.trim())
-    ElMessage.success(`数据集「${created.name}」已创建`)
+    ElMessage.success(`已创建数据集「${created.name}」`)
     dialogVisible.value = false
-    await loadDatasets()
+    const list = await store.fetchDatasets()
+    store.prefetchVersionSummaries(list.map((d) => d.id))
+  } catch (err) {
+    formError.value = err instanceof Error ? err.message : '创建数据集失败，请重试'
+    await nextTick()
+    formAlertRef.value?.focus()
   } finally {
     submitting.value = false
   }
 }
 
-function openDetail(id: number) {
-  router.push(`/datasets/${id}`)
+async function handleDelete(item: DatasetItem) {
+  const summary = getVersionSummary(item)
+  const detail = summary.hasVersion
+    ? `其下所有不可变版本（当前最新 ${summary.versionLabel}）与用例将一并清除，此操作不可撤销。`
+    : '此操作不可撤销。'
+  try {
+    await ElMessageBox.confirm(`确认删除数据集「${item.name}」？${detail}`, '删除数据集', {
+      type: 'warning',
+      confirmButtonText: '确认删除',
+      cancelButtonText: '取消',
+    })
+  } catch {
+    return
+  }
+  await deleteDatasetApi(item.id)
+  store.removeDatasetCache(item.id)
+  ElMessage.success(`已删除数据集「${item.name}」`)
+  liveAnnouncement.value = `已删除数据集 ${item.name}`
+  await store.fetchDatasets()
 }
 
-onMounted(loadDatasets)
+function handleRowMenu(command: string, item: DatasetItem) {
+  if (command === 'delete') {
+    handleDelete(item)
+  }
+}
+
+onMounted(() => {
+  refresh()
+})
+
+onBeforeUnmount(() => {
+  if (slowTimer !== null) window.clearTimeout(slowTimer)
+})
 </script>
 
 <template>
-  <div class="td-page">
-    <div class="td-page-header">
-      <div>
-        <h1 class="td-page-title">评测数据集</h1>
-        <p class="td-page-desc">
-          每个数据集采用追加式不可变版本管理，用例导入时自动计算规范化 SHA-256 哈希，确保跨版本回归对比公平可追溯。
-        </p>
+  <div class="view-stack">
+    <div class="sr-only" aria-live="polite">{{ liveAnnouncement }}</div>
+
+    <header class="view-header">
+      <h1 class="view-title">数据集</h1>
+      <button type="button" class="btn btn--primary" @click="openCreateDialog">
+        <TdIcon name="plus" :size="14" />
+        <span>新建数据集</span>
+      </button>
+    </header>
+
+    <div class="view-toolbar">
+      <div class="view-toolbar-group">
+        <div class="search-box">
+          <TdIcon name="search" :size="14" class="search-box-icon" />
+          <input
+            v-model="keyword"
+            type="search"
+            class="search-box-input"
+            placeholder="按名称、说明或 ID 搜索…"
+            aria-label="按名称、说明或 ID 搜索数据集"
+          />
+          <button
+            v-if="keyword"
+            type="button"
+            class="search-box-clear"
+            aria-label="清空搜索条件"
+            @click="keyword = ''"
+          >
+            <TdIcon name="x" :size="12" />
+          </button>
+        </div>
       </div>
-      <el-button type="primary" @click="openCreateDialog">
-        <TdIcon name="plus" :size="15" style="margin-right: 6px" />
-        新建数据集
-      </el-button>
+
+      <span v-if="store.datasetsLoaded" class="view-count mono" aria-live="polite">
+        {{ filteredDatasets.length }}<template v-if="keyword.trim()"> / {{ datasets.length }}</template> 个数据集
+      </span>
     </div>
 
-    <section class="td-surface">
-      <div class="td-toolbar">
-        <div class="td-toolbar-group search-group">
-          <el-input
-            v-model="keyword"
-            placeholder="搜索数据集名称、描述或 ID..."
-            clearable
-            class="search-input"
-          >
-            <template #prefix>
-              <TdIcon name="search" :size="14" />
-            </template>
-          </el-input>
-          <el-button :loading="loading" @click="loadDatasets">
-            <TdIcon name="refresh" :size="14" style="margin-right: 5px" />
-            刷新
-          </el-button>
-        </div>
+    <div v-if="loadError" class="error-banner" role="alert">
+      <span class="error-banner-body">
+        <TdIcon name="alert-circle" :size="15" />
+        <span>{{ loadError }}</span>
+      </span>
+      <button type="button" class="btn btn--secondary btn--sm" @click="refresh">
+        <TdIcon name="refresh" :size="13" />
+        <span>重试</span>
+      </button>
+    </div>
 
-        <div class="td-toolbar-group">
-          <span class="count-meta td-num">
-            共 <strong>{{ filteredDatasets.length }}</strong>
-            <template v-if="keyword.trim()"> / {{ datasets.length }}</template>
-            个数据集
-          </span>
-        </div>
+    <div v-if="!store.datasetsLoaded && !loadError">
+      <p v-if="showSlowHint" class="slow-loading" aria-live="polite">正在加载数据集列表…</p>
+    </div>
+
+    <section v-else-if="store.datasetsLoaded && datasets.length === 0" class="empty-panel">
+      <div class="empty-panel-icon" aria-hidden="true">
+        <TdIcon name="database" :size="18" />
       </div>
-
-      <!-- Loading skeleton -->
-      <div v-if="loading && datasets.length === 0" class="skeleton-wrap">
-        <el-skeleton :rows="5" animated />
-      </div>
-
-      <!-- First-run empty state -->
-      <div v-else-if="datasets.length === 0" class="empty-state">
-        <div class="empty-icon">
-          <TdIcon name="database" :size="22" />
-        </div>
-        <h3>还没有评测数据集</h3>
-        <p>
-          先创建一个数据集，随后导入 JSONL / JSON / CSV 题目即可生成首个不可变版本快照（v1）。
-        </p>
-        <el-button type="primary" @click="openCreateDialog">
-          <TdIcon name="plus" :size="15" style="margin-right: 6px" />
-          新建第一个数据集
-        </el-button>
-      </div>
-
-      <!-- Filtered empty state -->
-      <div v-else-if="filteredDatasets.length === 0" class="empty-state">
-        <h3>未找到匹配「{{ keyword }}」的数据集</h3>
-        <p>请调整搜索关键字，或清空筛选查看全部数据集。</p>
-        <el-button @click="keyword = ''">清空搜索</el-button>
-      </div>
-
-      <!-- Data table -->
-      <el-table
-        v-else
-        :data="filteredDatasets"
-        class="clickable-table"
-        @row-click="(row: DatasetItem) => openDetail(row.id)"
-      >
-        <el-table-column label="ID" width="84">
-          <template #default="{ row }">
-            <span class="id-chip td-mono">#{{ row.id }}</span>
-          </template>
-        </el-table-column>
-
-        <el-table-column label="数据集名称" min-width="220">
-          <template #default="{ row }">
-            <div class="name-cell">
-              <span class="dataset-name">{{ row.name }}</span>
-            </div>
-          </template>
-        </el-table-column>
-
-        <el-table-column label="说明" min-width="260">
-          <template #default="{ row }">
-            <span class="desc-text">{{ row.description || '暂无说明' }}</span>
-          </template>
-        </el-table-column>
-
-        <el-table-column label="创建时间" width="176">
-          <template #default="{ row }">
-            <span class="time-text td-mono">{{ formatDateTime(row.createdAt) }}</span>
-          </template>
-        </el-table-column>
-
-        <el-table-column label="操作" width="144" align="right" fixed="right">
-          <template #default="{ row }">
-            <el-button link type="primary" @click.stop="openDetail(row.id)">
-              版本与用例
-              <TdIcon name="chevron-right" :size="14" style="margin-left: 2px" />
-            </el-button>
-          </template>
-        </el-table-column>
-      </el-table>
+      <h2>尚无数据集</h2>
+      <p>新建数据集后，可导入 JSONL、JSON 或 CSV 生成不可变版本快照。</p>
+      <button type="button" class="btn btn--primary" @click="openCreateDialog">
+        <TdIcon name="plus" :size="14" />
+        <span>新建数据集</span>
+      </button>
     </section>
 
-    <el-dialog v-model="dialogVisible" title="新建数据集" width="460px">
+    <section v-else-if="store.datasetsLoaded && filteredDatasets.length === 0" class="empty-panel">
+      <h2>无匹配数据集</h2>
+      <p>当前搜索词「{{ keyword }}」未匹配到任何名称、说明或 ID。</p>
+      <button type="button" class="btn btn--secondary" @click="keyword = ''">清除搜索条件</button>
+    </section>
+
+    <div v-else-if="store.datasetsLoaded" class="data-table-wrap">
+      <table class="data-table" aria-label="数据集列表">
+        <thead>
+          <tr>
+            <th scope="col">名称与说明</th>
+            <th scope="col">最新版本</th>
+            <th scope="col" class="col-num">用例数</th>
+            <th scope="col">更新时间</th>
+            <th scope="col" class="col-actions">操作</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr v-for="item in filteredDatasets" :key="item.id">
+            <td class="dataset-name-cell">
+              <div class="dataset-name-line">
+                <router-link :to="`/datasets/${item.id}`" class="table-row-link" :title="item.name">
+                  <span class="table-row-link-text">{{ item.name }}</span>
+                </router-link>
+                <span class="micro-badge mono">#{{ item.id }}</span>
+              </div>
+              <div v-if="item.description" class="table-subtext" :title="item.description">
+                {{ item.description }}
+              </div>
+            </td>
+            <td class="cell-nowrap">
+              <span
+                class="micro-badge"
+                :class="{ mono: getVersionSummary(item).hasVersion }"
+              >
+                {{ getVersionSummary(item).versionLabel }}
+              </span>
+            </td>
+            <td class="col-num mono">
+              {{ getVersionSummary(item).caseCountLabel }}
+            </td>
+            <td class="cell-nowrap mono cell-secondary">
+              {{ formatDateTime(getVersionSummary(item).updatedAt) }}
+            </td>
+            <td class="col-actions">
+              <div class="table-actions">
+                <router-link :to="`/datasets/${item.id}`" class="btn btn--secondary btn--sm">
+                  <span>进入版本</span>
+                  <TdIcon name="chevron-right" :size="13" />
+                </router-link>
+
+                <el-dropdown
+                  trigger="click"
+                  placement="bottom-end"
+                  @command="(cmd: string) => handleRowMenu(cmd, item)"
+                >
+                  <button
+                    type="button"
+                    class="btn btn--icon"
+                    :aria-label="`更多操作：${item.name}`"
+                    title="更多操作"
+                  >
+                    <TdIcon name="more-horizontal" :size="16" />
+                  </button>
+                  <template #dropdown>
+                    <el-dropdown-menu>
+                      <el-dropdown-item command="delete" class="menu-danger">
+                        <TdIcon name="trash" :size="13" />
+                        <span>删除数据集</span>
+                      </el-dropdown-item>
+                    </el-dropdown-menu>
+                  </template>
+                </el-dropdown>
+              </div>
+            </td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+
+    <el-dialog
+      v-model="dialogVisible"
+      title="新建数据集"
+      width="460px"
+      :before-close="handleDialogBeforeClose"
+      @opened="onDialogOpened"
+    >
+      <div
+        v-if="formError"
+        ref="formAlertRef"
+        class="form-alert"
+        role="alert"
+        tabindex="-1"
+      >
+        <TdIcon name="alert-circle" :size="15" />
+        <span>{{ formError }}</span>
+      </div>
+
       <el-form label-position="top" @submit.prevent="handleCreate">
         <el-form-item label="数据集名称" required>
           <el-input
+            ref="nameInputRef"
             v-model="form.name"
-            placeholder="例如：rag-qa-benchmark"
+            placeholder="例如 rag-qa-benchmark"
             maxlength="128"
-            show-word-limit
           />
         </el-form-item>
-        <el-form-item label="描述（可选）">
+        <el-form-item label="说明（可选）">
           <el-input
             v-model="form.description"
             type="textarea"
             :rows="3"
             maxlength="500"
-            show-word-limit
-            placeholder="说明评测目标、题型或语料来源"
+            placeholder="描述题库用途或评测范围"
           />
         </el-form-item>
       </el-form>
+
       <template #footer>
-        <el-button @click="dialogVisible = false">取消</el-button>
-        <el-button type="primary" :loading="submitting" @click="handleCreate">创建数据集</el-button>
+        <div class="dialog-footer">
+          <button
+            type="button"
+            class="btn btn--secondary btn--sm"
+            :disabled="submitting"
+            @click="requestCloseDialog"
+          >
+            取消
+          </button>
+          <button
+            type="button"
+            class="btn btn--primary btn--sm"
+            :disabled="submitting"
+            :aria-busy="submitting"
+            @click="handleCreate"
+          >
+            {{ submitting ? '创建中…' : '创建' }}
+          </button>
+        </div>
       </template>
     </el-dialog>
   </div>
 </template>
 
 <style scoped>
-.search-group {
-  flex: 1;
+.dataset-name-cell {
   min-width: 220px;
+  max-width: 460px;
 }
 
-.search-input {
-  max-width: 320px;
-}
-
-.count-meta {
-  font-size: var(--td-text-xs);
-  color: var(--td-text-muted);
-}
-
-.count-meta strong {
-  color: var(--td-text-primary);
-  font-weight: 600;
-}
-
-.skeleton-wrap {
-  padding: 20px;
-}
-
-.empty-state {
-  padding: 56px 24px;
-  text-align: center;
+.dataset-name-line {
   display: flex;
-  flex-direction: column;
   align-items: center;
-  gap: 10px;
+  gap: 8px;
+  min-width: 0;
 }
 
-.empty-icon {
-  width: 44px;
-  height: 44px;
-  border-radius: var(--td-radius-md);
-  background-color: var(--td-bg-subtle);
-  border: 1px solid var(--td-border-subtle);
-  color: var(--td-text-muted);
+.cell-nowrap {
+  white-space: nowrap;
+}
+
+.cell-secondary {
+  color: var(--td-text-secondary);
+  font-size: 13px;
+}
+
+.table-actions {
   display: inline-flex;
   align-items: center;
-  justify-content: center;
-  margin-bottom: 4px;
-}
-
-.empty-state h3 {
-  margin: 0;
-  font-size: var(--td-text-md);
-  font-weight: 600;
-  color: var(--td-text-primary);
-}
-
-.empty-state p {
-  margin: 0 0 8px;
-  font-size: var(--td-text-sm);
-  color: var(--td-text-secondary);
-  max-width: 46ch;
-}
-
-.clickable-table :deep(.el-table__row) {
-  cursor: pointer;
-}
-
-.id-chip {
-  font-size: var(--td-text-xs);
-  color: var(--td-text-muted);
-}
-
-.dataset-name {
-  font-weight: 600;
-  color: var(--td-text-primary);
-}
-
-.desc-text {
-  color: var(--td-text-secondary);
-  font-size: var(--td-text-sm);
-  display: -webkit-box;
-  -webkit-line-clamp: 2;
-  -webkit-box-orient: vertical;
-  overflow: hidden;
-}
-
-.time-text {
-  font-size: var(--td-text-xs);
-  color: var(--td-text-muted);
+  gap: 6px;
 }
 </style>

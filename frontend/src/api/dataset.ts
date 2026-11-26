@@ -39,6 +39,10 @@ export async function createDatasetApi(name: string, description: string): Promi
   return res.data.data
 }
 
+export async function deleteDatasetApi(datasetId: number): Promise<void> {
+  await http.delete(`/datasets/${datasetId}`)
+}
+
 export async function listDatasetVersionsApi(datasetId: number): Promise<DatasetVersionItem[]> {
   const res = await http.get<ApiResponse<DatasetVersionItem[]>>(`/datasets/${datasetId}/versions`)
   return res.data.data
