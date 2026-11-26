@@ -11,7 +11,7 @@ services:
       MYSQL_PASSWORD: ${TRACEDELTA_DB_PASSWORD:-tracedelta_dev_pass}
       MYSQL_ROOT_PASSWORD: ${TRACEDELTA_MYSQL_ROOT_PASSWORD:-root_dev_pass}
     ports:
-      - "3306:3306"
+      - "13306:3306"
     volumes:
       - tracedelta_mysql_data:/var/lib/mysql
     healthcheck:
