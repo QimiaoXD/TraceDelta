@@ -579,18 +579,18 @@ git push origin feat/m2-eval-engine
     - Case Results table: status filter (`全部` / `成功` / `失败` / `已跳过` / `待执行`) + search by `case_key`, columns: `case_key`, status (icon + text), `尝试次数` (+ `中断恢复` tag when `hasInterruptedUnknown`), latency ms, tokens, cost, output/error summary, inspect button.
     - Case Inspector Drawer: full output text, error message, `case_hash` (with copy + `aria-live`), and `EvalAttempt` attempt timeline (`#attemptNo`, status, latency, tokens, cost, errorType, errorMessage, timestamps).
 
-- [ ] **Step 1: Add `frontend/src/api/run.ts`, update router, `MainLayout.vue`, and `consoleData.ts`**
+- [x] **Step 1: Add `frontend/src/api/run.ts`, update router, `MainLayout.vue`, and `consoleData.ts`**
 
-- [ ] **Step 2: Build `RunsView.vue` and `RunDetailView.vue` following `DESIGN.md` tokens & WCAG 2.2 AA rules**
+- [x] **Step 2: Build `RunsView.vue` and `RunDetailView.vue` following `DESIGN.md` tokens & WCAG 2.2 AA rules**
 
-- [ ] **Step 3: Sync `DESIGN.md` and `PRODUCT.md` to reflect M1 + M2 implemented scope**
+- [x] **Step 3: Sync `DESIGN.md` and `PRODUCT.md` to reflect M1 + M2 implemented scope**
 
-- [ ] **Step 4: Run frontend typecheck + production build and backend full test suite**
+- [x] **Step 4: Run frontend typecheck + production build and backend full test suite**
 
 Run: `npm --prefix frontend run build && JAVA_HOME="/opt/homebrew/opt/openjdk@21/libexec/openjdk.jdk/Contents/Home" PATH="/opt/homebrew/opt/openjdk@21/bin:$PATH" /opt/homebrew/bin/mvn -f backend/pom.xml test`
 Expected: Frontend builds cleanly with zero TypeScript errors; backend `mvn test` passes 100%.
 
-- [ ] **Step 5: Commit and push**
+- [x] **Step 5: Commit and push**
 
 ```bash
 git add frontend/ DESIGN.md PRODUCT.md

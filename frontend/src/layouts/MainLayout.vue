@@ -24,10 +24,12 @@ interface NavItem {
 const navItems: NavItem[] = [
   { label: '数据集', to: '/datasets', icon: 'database' },
   { label: '模型渠道', to: '/providers', icon: 'cpu' },
+  { label: '评测任务', to: '/runs', icon: 'activity' },
 ]
 
 const activePath = computed(() => {
   if (route.path.startsWith('/providers')) return '/providers'
+  if (route.path.startsWith('/runs')) return '/runs'
   return '/datasets'
 })
 
@@ -40,6 +42,16 @@ const nestedCrumb = computed(() => {
       parentTo: '/datasets',
       current: meta ? meta.name : `#${route.params.id}`,
       currentIsMono: !meta,
+    }
+  }
+  if (route.name === 'run-detail') {
+    const id = Number(route.params.id)
+    const name = consoleData.getCachedRunName(id)
+    return {
+      parentLabel: '评测任务',
+      parentTo: '/runs',
+      current: name || `#${route.params.id}`,
+      currentIsMono: !name,
     }
   }
   return null

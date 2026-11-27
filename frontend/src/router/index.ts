@@ -5,6 +5,8 @@ import LoginView from '../views/LoginView.vue'
 import DatasetsView from '../views/DatasetsView.vue'
 import DatasetDetailView from '../views/DatasetDetailView.vue'
 import ProvidersView from '../views/ProvidersView.vue'
+import RunsView from '../views/RunsView.vue'
+import RunDetailView from '../views/RunDetailView.vue'
 
 const router = createRouter({
   history: createWebHistory(),
@@ -33,6 +35,16 @@ const router = createRouter({
           path: 'providers',
           name: 'providers',
           component: ProvidersView,
+        },
+        {
+          path: 'runs',
+          name: 'runs',
+          component: RunsView,
+        },
+        {
+          path: 'runs/:id',
+          name: 'run-detail',
+          component: RunDetailView,
         },
       ],
     },
