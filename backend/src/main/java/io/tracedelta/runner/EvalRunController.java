@@ -3,6 +3,7 @@ package io.tracedelta.runner;
 import io.tracedelta.common.ApiResponse;
 import jakarta.validation.Valid;
 import java.util.List;
+import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
@@ -55,5 +56,11 @@ public class EvalRunController {
     @PostMapping("/{id}/cancel")
     public ApiResponse<EvalRunDetailView> cancel(@PathVariable Long id) {
         return ApiResponse.ok(evalRunService.cancelRun(id));
+    }
+
+    @DeleteMapping("/{id}")
+    public ApiResponse<Void> delete(@PathVariable Long id) {
+        evalRunService.deleteRun(id);
+        return ApiResponse.ok(null);
     }
 }

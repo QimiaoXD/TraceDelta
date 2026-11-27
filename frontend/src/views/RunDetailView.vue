@@ -1,9 +1,10 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
-import { useRoute } from 'vue-router'
+import { useRoute, useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import {
   cancelRunApi,
+  deleteRunApi,
   getRunDetailApi,
   isActiveRunStatus,
   listResultAttemptsApi,
@@ -27,6 +28,7 @@ import {
 } from '../utils/runFormat'
 
 const route = useRoute()
+const router = useRouter()
 const store = useConsoleDataStore()
 
 const runId = computed(() => Number(route.params.id))
@@ -36,6 +38,7 @@ const results = ref<EvalResultItem[]>([])
 const loading = ref(false)
 const loadError = ref('')
 const cancelling = ref(false)
+const deleting = ref(false)
 const showSnapshot = ref(false)
 const liveAnnouncement = ref('')
 
@@ -151,6 +154,36 @@ async function handleCancel() {
   }
 }
 
+async function handleDelete() {
+  if (!run.value || deleting.value || isActive.value) return
+  try {
+    await ElMessageBox.confirm(
+      `确认删除评测任务「${run.value.name}」？其下 ${run.value.totalCases} 条用例结果与全部 EvalAttempt 尝试记录将一并清除，此操作不可撤销。`,
+      '删除评测任务',
+      {
+        type: 'warning',
+        confirmButtonText: '确认删除',
+        cancelButtonText: '取消',
+      },
+    )
+  } catch {
+    return
+  }
+
+  deleting.value = true
+  try {
+    const id = run.value.id
+    const name = run.value.name
+    await deleteRunApi(id)
+    store.removeRunCache(id)
+    stopPolling()
+    ElMessage.success(`已删除评测任务「${name}」`)
+    router.push('/runs')
+  } finally {
+    deleting.value = false
+  }
+}
+
 async function openInspector(item: EvalResultItem) {
   selectedResult.value = item
   drawerVisible.value = true
@@ -224,6 +257,16 @@ onBeforeUnmount(() => {
           >
             <TdIcon name="x" :size="14" />
             <span>{{ run.cancelRequested ? '取消中…' : '取消任务' }}</span>
+          </button>
+          <button
+            v-else
+            type="button"
+            class="btn btn--secondary"
+            :disabled="deleting"
+            @click="handleDelete"
+          >
+            <TdIcon name="trash" :size="14" />
+            <span>{{ deleting ? '删除中…' : '删除记录' }}</span>
           </button>
           <button type="button" class="btn btn--secondary" :disabled="loading" @click="fetchAll(false)">
             <TdIcon name="refresh" :size="14" />

@@ -60,6 +60,13 @@ export const useConsoleDataStore = defineStore('consoleData', () => {
     return runNameById.value[id]
   }
 
+  function removeRunCache(id: number) {
+    runs.value = runs.value.filter((r) => r.id !== id)
+    const nextNames = { ...runNameById.value }
+    delete nextNames[id]
+    runNameById.value = nextNames
+  }
+
   async function fetchVersions(datasetId: number): Promise<DatasetVersionItem[]> {
     const data = await listDatasetVersionsApi(datasetId)
     versionsByDataset.value = { ...versionsByDataset.value, [datasetId]: data }
@@ -147,6 +154,7 @@ export const useConsoleDataStore = defineStore('consoleData', () => {
     fetchRuns,
     rememberRunName,
     getCachedRunName,
+    removeRunCache,
     fetchVersions,
     prefetchVersionSummaries,
     fetchCases,

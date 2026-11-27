@@ -278,6 +278,23 @@ public class EvalRunService {
         return EvalRunDetailView.fromEntity(getRunOrThrow(runId));
     }
 
+    public void deleteRun(Long runId) {
+        transactionTemplate.executeWithoutResult(status -> {
+            EvalRunEntity run = getRunOrThrow(runId);
+            EvalRunStatus current = EvalRunStatus.valueOf(run.getStatus());
+            if (!current.isTerminal()) {
+                throw new BizException(
+                        ErrorCode.INVALID_STATE,
+                        "运行中的评测任务无法直接删除，请先取消并等待其进入终态: " + current.name());
+            }
+            attemptMapper.delete(new LambdaQueryWrapper<EvalAttemptEntity>()
+                    .eq(EvalAttemptEntity::getRunId, runId));
+            resultMapper.delete(new LambdaQueryWrapper<EvalResultEntity>()
+                    .eq(EvalResultEntity::getRunId, runId));
+            runMapper.deleteById(runId);
+        });
+    }
+
     private EvalRunEntity getRunOrThrow(Long runId) {
         EvalRunEntity run = runMapper.selectById(runId);
         if (run == null) {

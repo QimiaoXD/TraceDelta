@@ -4,9 +4,11 @@ import { useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import {
   createRunApi,
+  deleteRunApi,
   isActiveRunStatus,
   type CreateEvalRunPayload,
   type EvalRunStatus,
+  type EvalRunSummary,
 } from '../api/run'
 import { useConsoleDataStore } from '../stores/consoleData'
 import TdIcon from '../components/TdIcon.vue'
@@ -307,6 +309,37 @@ async function handleCreate() {
   }
 }
 
+async function handleDeleteRun(run: EvalRunSummary) {
+  if (isActiveRunStatus(run.status)) {
+    ElMessage.warning('运行中的评测任务无法直接删除，请先进入看板取消任务')
+    return
+  }
+  try {
+    await ElMessageBox.confirm(
+      `确认删除评测任务「${run.name}」？其下 ${run.totalCases} 条用例结果与全部 EvalAttempt 尝试记录将一并清除，此操作不可撤销。`,
+      '删除评测任务',
+      {
+        type: 'warning',
+        confirmButtonText: '确认删除',
+        cancelButtonText: '取消',
+      },
+    )
+  } catch {
+    return
+  }
+  await deleteRunApi(run.id)
+  store.removeRunCache(run.id)
+  ElMessage.success(`已删除评测任务「${run.name}」`)
+  liveAnnouncement.value = `已删除评测任务 ${run.name}`
+  await store.fetchRuns()
+}
+
+function handleRowMenu(command: string, run: EvalRunSummary) {
+  if (command === 'delete') {
+    handleDeleteRun(run)
+  }
+}
+
 onMounted(() => {
   refresh()
 })
@@ -481,10 +514,35 @@ onBeforeUnmount(() => {
             </td>
             <td class="mono cell-muted">{{ formatDateTime(run.createdAt) }}</td>
             <td class="col-actions">
-              <router-link :to="`/runs/${run.id}`" class="btn btn--secondary btn--sm">
-                <span>看板</span>
-                <TdIcon name="chevron-right" :size="13" />
-              </router-link>
+              <div class="row-action-inline">
+                <router-link :to="`/runs/${run.id}`" class="btn btn--secondary btn--sm">
+                  <span>看板</span>
+                  <TdIcon name="chevron-right" :size="13" />
+                </router-link>
+                <el-dropdown trigger="click" @command="(cmd: string) => handleRowMenu(cmd, run)">
+                  <button
+                    type="button"
+                    class="btn btn--icon"
+                    :aria-label="`更多操作：${run.name}`"
+                    title="更多操作"
+                  >
+                    <TdIcon name="more-horizontal" :size="15" />
+                  </button>
+                  <template #dropdown>
+                    <el-dropdown-menu>
+                      <el-dropdown-item
+                        command="delete"
+                        :disabled="isActiveRunStatus(run.status)"
+                      >
+                        <span class="dropdown-danger">
+                          <TdIcon name="trash" :size="13" />
+                          <span>{{ isActiveRunStatus(run.status) ? '运行中不可删除' : '删除记录' }}</span>
+                        </span>
+                      </el-dropdown-item>
+                    </el-dropdown-menu>
+                  </template>
+                </el-dropdown>
+              </div>
             </td>
           </tr>
         </tbody>
@@ -683,6 +741,19 @@ onBeforeUnmount(() => {
 .cell-muted {
   color: var(--td-text-secondary);
   white-space: nowrap;
+}
+
+.row-action-inline {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.dropdown-danger {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--td-danger-text);
 }
 
 .form-grid-2 {

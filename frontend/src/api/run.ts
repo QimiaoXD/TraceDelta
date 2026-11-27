@@ -172,3 +172,7 @@ export async function cancelRunApi(id: number): Promise<EvalRunDetail> {
   const { data } = await http.post<ApiResponse<EvalRunDetail>>(`/runs/${id}/cancel`)
   return data.data
 }
+
+export async function deleteRunApi(id: number): Promise<void> {
+  await http.delete<ApiResponse<null>>(`/runs/${id}`)
+}

@@ -1,6 +1,7 @@
 package io.tracedelta.runner;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
@@ -28,6 +29,15 @@ class EvalRunControllerTest {
 
     @Autowired
     private ObjectMapper objectMapper;
+
+    @Autowired
+    private EvalRunMapper runMapper;
+
+    @Autowired
+    private EvalResultMapper resultMapper;
+
+    @Autowired
+    private EvalAttemptMapper attemptMapper;
 
     private String loginAsAdmin() throws Exception {
         MvcResult res = mockMvc.perform(post("/api/auth/login")
@@ -178,5 +188,95 @@ class EvalRunControllerTest {
                         .header("Authorization", "Bearer " + token))
                 .andExpect(status().isNotFound())
                 .andExpect(jsonPath("$.code").value("NOT_FOUND"));
+    }
+
+    @Test
+    void deleteTerminalRunCascadesAttemptsAndResultsAndRejectsActiveRun() throws Exception {
+        String token = loginAsAdmin();
+        long datasetId = createDatasetWithCases(token, "run-api-del-ds");
+        long providerId = createMockProvider(token, "run-api-del-mock");
+
+        MvcResult createRunRes = mockMvc.perform(post("/api/runs")
+                        .header("Authorization", "Bearer " + token)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(Map.of(
+                                "name", "to-be-deleted-run",
+                                "datasetId", datasetId,
+                                "datasetVersionNo", 1,
+                                "providerId", providerId))))
+                .andExpect(status().isOk())
+                .andReturn();
+        long runId = objectMapper.readTree(createRunRes.getResponse().getContentAsString())
+                .path("data").path("id").asLong();
+
+        // Wait for terminal
+        for (int i = 0; i < 100; i++) {
+            MvcResult res = mockMvc.perform(get("/api/runs/" + runId)
+                            .header("Authorization", "Bearer " + token))
+                    .andReturn();
+            String st = objectMapper.readTree(res.getResponse().getContentAsString())
+                    .path("data").path("status").asText();
+            if (EvalRunStatus.valueOf(st).isTerminal()) {
+                break;
+            }
+            Thread.sleep(30);
+        }
+
+        // Delete terminal run succeeds and cascades attempts & results
+        mockMvc.perform(delete("/api/runs/" + runId)
+                        .header("Authorization", "Bearer " + token))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.success").value(true));
+
+        assertThat(runMapper.selectById(runId)).isNull();
+        assertThat(resultMapper.selectList(
+                new com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper<EvalResultEntity>()
+                        .eq(EvalResultEntity::getRunId, runId))).isEmpty();
+        assertThat(attemptMapper.selectList(
+                new com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper<EvalAttemptEntity>()
+                        .eq(EvalAttemptEntity::getRunId, runId))).isEmpty();
+
+        // Deleting again returns 404
+        mockMvc.perform(delete("/api/runs/" + runId)
+                        .header("Authorization", "Bearer " + token))
+                .andExpect(status().isNotFound())
+                .andExpect(jsonPath("$.code").value("NOT_FOUND"));
+
+        // Deleting an active RUNNING run returns 409 INVALID_STATE
+        MvcResult slowProviderRes = mockMvc.perform(post("/api/providers")
+                        .header("Authorization", "Bearer " + token)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(Map.of(
+                                "name", "slow-del-guard",
+                                "providerType", "MOCK",
+                                "defaultModel", "mock-slow",
+                                "mockConfigJson", "{\"profile\":\"mock-slow\",\"seed\":1,\"latencyMs\":400}"))))
+                .andExpect(status().isOk())
+                .andReturn();
+        long slowProviderId = objectMapper.readTree(slowProviderRes.getResponse().getContentAsString())
+                .path("data").path("id").asLong();
+
+        MvcResult activeRunRes = mockMvc.perform(post("/api/runs")
+                        .header("Authorization", "Bearer " + token)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(Map.of(
+                                "name", "active-run-guard",
+                                "datasetId", datasetId,
+                                "datasetVersionNo", 1,
+                                "providerId", slowProviderId,
+                                "concurrency", 1))))
+                .andExpect(status().isOk())
+                .andReturn();
+        long activeRunId = objectMapper.readTree(activeRunRes.getResponse().getContentAsString())
+                .path("data").path("id").asLong();
+
+        mockMvc.perform(delete("/api/runs/" + activeRunId)
+                        .header("Authorization", "Bearer " + token))
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.code").value("INVALID_STATE"));
+
+        // Cancel cleanly so background virtual thread finishes quickly
+        mockMvc.perform(post("/api/runs/" + activeRunId + "/cancel")
+                        .header("Authorization", "Bearer " + token));
     }
 }
