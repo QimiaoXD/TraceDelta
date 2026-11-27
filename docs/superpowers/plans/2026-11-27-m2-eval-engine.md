@@ -395,7 +395,7 @@ git push origin feat/m2-eval-engine
     - `void requestCancel(Long runId)`
     - `void finalizeRun(Long runId)` — computes exact aggregates from DB (`eval_result` + `eval_attempt`), including P95 latency (nearest-rank on `EXEC_SUCCEEDED` latencies) and terminal status per Spec 4.11 D.
 
-- [ ] **Step 1: Write failing tests `EvalRunExecutorTest.java`**
+- [x] **Step 1: Write failing tests `EvalRunExecutorTest.java`**
 
 Tests must assert:
 1. `concurrentRunWith200MockGoodCasesCompletesWithAccurateAggregates`: 200 cases, `concurrency=16`, `mock-good` with pricing JSON -> Run ends `COMPLETED`, `completedCases=200`, `succeededCases=200`, `failedCases=0`, `skippedCases=0`, `totalCostUsd > 0`, `p95LatencyMs >= 0`, every result has `attemptCount=1` and `scoreConclusion=UNSCORED`.
@@ -405,12 +405,12 @@ Tests must assert:
 5. `cancelMidRunSkipsRemainingAndFinalizesAsCancelled`: 20 cases with `mock-slow` (`latencyMs=150`, `concurrency=2`) -> call `cancelRun` after ~100ms -> Run ends `CANCELLED`, never overwritten to `COMPLETED`/`PARTIAL_FAILED`, remaining `PENDING` cases marked `SKIPPED` (`CANCELLED`) (Review Focus #5).
 6. `idempotentExecutionNeverReschedulesSucceededCases`: pre-mark 3 of 5 cases as `EXEC_SUCCEEDED` with `attemptCount=1`, submit Run -> only the 2 `PENDING` cases execute, the 3 pre-succeeded cases keep `attemptCount=1`.
 
-- [ ] **Step 2: Run test to verify failure**
+- [x] **Step 2: Run test to verify failure**
 
 Run: `JAVA_HOME="/opt/homebrew/opt/openjdk@21/libexec/openjdk.jdk/Contents/Home" PATH="/opt/homebrew/opt/openjdk@21/bin:$PATH" /opt/homebrew/bin/mvn -f backend/pom.xml test -Dtest=EvalRunExecutorTest`
 Expected: FAIL.
 
-- [ ] **Step 3: Implement `EvalCaseWorker`, `EvalRunExecutor`, `EvalRunService`, and DTO/View records**
+- [x] **Step 3: Implement `EvalCaseWorker`, `EvalRunExecutor`, `EvalRunService`, and DTO/View records**
 
 Critical execution flow in `EvalCaseWorker.executeCase(EvalRunEntity run, TargetConfigSnapshot targetConfig, EvalResultEntity result, RunControlHandle handle)`:
 1. If `handle.isStopDispatching()` -> return (finalizer will mark remaining `PENDING` as `SKIPPED`).
@@ -428,12 +428,12 @@ Critical execution flow in `EvalCaseWorker.executeCase(EvalRunEntity run, Target
 4. After each case finishes, refresh live progress counters on `eval_run` (atomic/lightweight counter update) so 2-second polling sees smooth real-time progress!
 5. When all virtual-thread tasks complete (in `finally` of `EvalRunExecutor.runAsync`), skip any remaining `PENDING` cases with appropriate reason (`CANCELLED` / `BUDGET_EXCEEDED`), compute exact final aggregates & P95 latency, write terminal status (`CANCELLED` takes precedence if `cancelRequested`, else `FAILED` if engine error or all cases `EXEC_FAILED`, else `PARTIAL_FAILED` if `failed > 0 || skipped > 0`, else `COMPLETED`), and clean up `RunControlHandle` & `runSemaphore`.
 
-- [ ] **Step 4: Run tests to verify pass**
+- [x] **Step 4: Run tests to verify pass**
 
 Run: `JAVA_HOME="/opt/homebrew/opt/openjdk@21/libexec/openjdk.jdk/Contents/Home" PATH="/opt/homebrew/opt/openjdk@21/bin:$PATH" /opt/homebrew/bin/mvn -f backend/pom.xml test`
 Expected: PASS.
 
-- [ ] **Step 5: Commit and push**
+- [x] **Step 5: Commit and push**
 
 ```bash
 git add backend/src/main/java/io/tracedelta/runner/ backend/src/test/java/io/tracedelta/runner/EvalRunExecutorTest.java
