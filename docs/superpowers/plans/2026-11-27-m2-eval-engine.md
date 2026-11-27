@@ -516,7 +516,7 @@ git push origin feat/m2-eval-engine
   - `GET /api/runs/{id}/results/{resultId}/attempts` — list attempts -> `ApiResponse<List<EvalAttemptView>>`
   - `POST /api/runs/{id}/cancel` — cancel active run -> `ApiResponse<EvalRunDetailView>`
 
-- [ ] **Step 1: Write failing integration test `EvalRunControllerTest.java`**
+- [x] **Step 1: Write failing integration test `EvalRunControllerTest.java`**
 
 Tests must assert:
 - Unauthenticated `GET /api/runs` returns `401`.
@@ -525,19 +525,19 @@ Tests must assert:
 - `POST /api/runs/{id}/cancel` on a `COMPLETED` run returns `409` with `code = "INVALID_STATE"` (Review Focus #5).
 - Validation errors (`concurrency = 0`, `maxCostUsd = -1`, non-existent dataset/version/provider) return `400` / `404` with unified `ApiResponse`.
 
-- [ ] **Step 2: Run test to verify failure**
+- [x] **Step 2: Run test to verify failure**
 
 Run: `JAVA_HOME="/opt/homebrew/opt/openjdk@21/libexec/openjdk.jdk/Contents/Home" PATH="/opt/homebrew/opt/openjdk@21/bin:$PATH" /opt/homebrew/bin/mvn -f backend/pom.xml test -Dtest=EvalRunControllerTest`
 Expected: FAIL (404 NoResourceFound).
 
-- [ ] **Step 3: Implement `EvalRunController.java`**
+- [x] **Step 3: Implement `EvalRunController.java`**
 
-- [ ] **Step 4: Run full backend test suite to verify pass**
+- [x] **Step 4: Run full backend test suite to verify pass**
 
 Run: `JAVA_HOME="/opt/homebrew/opt/openjdk@21/libexec/openjdk.jdk/Contents/Home" PATH="/opt/homebrew/opt/openjdk@21/bin:$PATH" /opt/homebrew/bin/mvn -f backend/pom.xml test`
 Expected: PASS (all backend unit + integration tests green).
 
-- [ ] **Step 5: Commit and push**
+- [x] **Step 5: Commit and push**
 
 ```bash
 git add backend/src/main/java/io/tracedelta/runner/EvalRunController.java backend/src/test/java/io/tracedelta/runner/EvalRunControllerTest.java
