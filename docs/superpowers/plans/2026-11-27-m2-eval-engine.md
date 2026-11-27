@@ -264,7 +264,7 @@ git push origin feat/m2-eval-engine
     - `void releaseGlobalPermit()`
     - `void releaseRunPermit(Semaphore runSem)`
 
-- [ ] **Step 1: Write failing tests `TokenBucketRateLimiterTest.java` & `ConcurrencyLimiterTest.java`**
+- [x] **Step 1: Write failing tests `TokenBucketRateLimiterTest.java` & `ConcurrencyLimiterTest.java`**
 
 Tests must assert:
 - `LocalTokenBucketRateLimiter`:
@@ -279,12 +279,12 @@ Tests must assert:
   - Peak concurrent active workers across two Runs never exceeds `globalMaxConcurrency`.
   - Run A (`concurrency=1`, 10 queued workers) and Run B (`concurrency=2`, 4 workers) with `globalMaxConcurrency=3`: Run B runs 2 workers concurrently without being starved by Run A's queued workers (Review Focus #1).
 
-- [ ] **Step 2: Run tests to verify failure**
+- [x] **Step 2: Run tests to verify failure**
 
 Run: `JAVA_HOME="/opt/homebrew/opt/openjdk@21/libexec/openjdk.jdk/Contents/Home" PATH="/opt/homebrew/opt/openjdk@21/bin:$PATH" /opt/homebrew/bin/mvn -f backend/pom.xml test -Dtest=TokenBucketRateLimiterTest,ConcurrencyLimiterTest`
 Expected: FAIL.
 
-- [ ] **Step 3: Implement Lua script, rate limiters, and `ConcurrencyLimiter`**
+- [x] **Step 3: Implement Lua script, rate limiters, and `ConcurrencyLimiter`**
 
 `lua/token_bucket.lua` algorithm:
 - `KEYS[1]` = `td:rl:<key>`, `ARGV[1]` = `capacity`, `ARGV[2]` = `refill_per_sec`, `ARGV[3]` = `now_ms`.
@@ -293,12 +293,12 @@ Expected: FAIL.
 - If `tokens >= 1.0`: deduct 1, `HMSET`, `PEXPIRE` (at least 60s or `ceil(capacity/refill)*2000`), return `{1, 0}`.
 - Else: compute `wait_ms = math.ceil((1.0 - tokens) / refill_per_sec * 1000.0)`, return `{0, wait_ms}`.
 
-- [ ] **Step 4: Run tests to verify pass**
+- [x] **Step 4: Run tests to verify pass**
 
 Run: `JAVA_HOME="/opt/homebrew/opt/openjdk@21/libexec/openjdk.jdk/Contents/Home" PATH="/opt/homebrew/opt/openjdk@21/bin:$PATH" /opt/homebrew/bin/mvn -f backend/pom.xml test`
 Expected: PASS.
 
-- [ ] **Step 5: Commit and push**
+- [x] **Step 5: Commit and push**
 
 ```bash
 git add backend/src/main/resources/lua/ backend/src/main/java/io/tracedelta/runner/ratelimit/ backend/src/main/java/io/tracedelta/runner/ConcurrencyLimiter.java backend/src/test/java/io/tracedelta/runner/
