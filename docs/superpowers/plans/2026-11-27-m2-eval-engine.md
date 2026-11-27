@@ -199,7 +199,7 @@ git push -u origin feat/m2-eval-engine
     - `TargetExecutionResult execute(TargetExecutionContext context)`
   - `TargetRegistry.get(TargetType type)` -> `EvalTarget`
 
-- [ ] **Step 1: Write failing tests `PromptTemplateRendererTest.java` & `PromptTargetTest.java`**
+- [x] **Step 1: Write failing tests `PromptTemplateRendererTest.java` & `PromptTargetTest.java`**
 
 Tests must assert:
 - `PromptTemplateRenderer`:
@@ -212,21 +212,21 @@ Tests must assert:
   - For `OPENAI_COMPATIBLE`, fetches decrypted key via `ProviderService`; if provider was deleted (`BizException(NOT_FOUND)`), returns `TargetExecutionResult` with non-retryable `LlmErrorType.MALFORMED_RESPONSE` (or `HTTP_ERROR` with `"Provider deleted"`) instead of throwing uncaught exception (Review Focus #4).
   - Serializing `TargetConfigSnapshot` to JSON contains neither `apiKey` nor `apiKeyCiphertext`.
 
-- [ ] **Step 2: Run tests to verify failure**
+- [x] **Step 2: Run tests to verify failure**
 
 Run: `JAVA_HOME="/opt/homebrew/opt/openjdk@21/libexec/openjdk.jdk/Contents/Home" PATH="/opt/homebrew/opt/openjdk@21/bin:$PATH" /opt/homebrew/bin/mvn -f backend/pom.xml test -Dtest=PromptTemplateRendererTest,PromptTargetTest`
 Expected: FAIL (classes not found).
 
-- [ ] **Step 3: Implement `io.tracedelta.target.*`**
+- [x] **Step 3: Implement `io.tracedelta.target.*`**
 
 Implement `PromptTemplateRenderer`, `TargetConfigSnapshot`, `CaseSnapshot`, `TargetExecutionContext`, `TargetExecutionResult`, `EvalTarget`, `PromptTarget`, `TargetRegistry`.
 
-- [ ] **Step 4: Run tests to verify pass**
+- [x] **Step 4: Run tests to verify pass**
 
 Run: `JAVA_HOME="/opt/homebrew/opt/openjdk@21/libexec/openjdk.jdk/Contents/Home" PATH="/opt/homebrew/opt/openjdk@21/bin:$PATH" /opt/homebrew/bin/mvn -f backend/pom.xml test`
 Expected: PASS.
 
-- [ ] **Step 5: Commit and push**
+- [x] **Step 5: Commit and push**
 
 ```bash
 git add backend/src/main/java/io/tracedelta/target/ backend/src/test/java/io/tracedelta/target/
