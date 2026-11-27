@@ -6,7 +6,8 @@ public enum ErrorCode {
     NOT_FOUND(404),
     DUPLICATE_CASE_KEY(400),
     IMPORT_INVALID(400),
-    PROVIDER_ERROR(400);
+    PROVIDER_ERROR(400),
+    INVALID_STATE(409);
 
     private final int httpStatus;
 
