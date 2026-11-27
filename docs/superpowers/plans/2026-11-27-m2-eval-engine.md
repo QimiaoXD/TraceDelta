@@ -457,7 +457,7 @@ git push origin feat/m2-eval-engine
   - `EvalRecoveryService.recoverInterruptedRuns()` -> `RecoverySummary`
   - `EvalRecoveryBootstrap`: `@EventListener(ApplicationReadyEvent.class)` invokes `recoverInterruptedRuns()` when `runnerProperties.isRecoveryOnStartup()` is true.
 
-- [ ] **Step 1: Write failing test `EvalRecoveryServiceTest.java`**
+- [x] **Step 1: Write failing test `EvalRecoveryServiceTest.java`**
 
 Tests must assert:
 1. `recoversInterruptedRunWithoutReexecutingSucceededCases`:
@@ -478,19 +478,19 @@ Tests must assert:
 3. `recoveryFinalizesCancelledBeforeCrashRunWithoutDispatching`:
    - Seed a `RUNNING` run with `cancelRequested=true` and 2 `PENDING` cases -> recovery marks them `SKIPPED (CANCELLED)` and finalizes Run as `CANCELLED` (Review Focus #5).
 
-- [ ] **Step 2: Run test to verify failure**
+- [x] **Step 2: Run test to verify failure**
 
 Run: `JAVA_HOME="/opt/homebrew/opt/openjdk@21/libexec/openjdk.jdk/Contents/Home" PATH="/opt/homebrew/opt/openjdk@21/bin:$PATH" /opt/homebrew/bin/mvn -f backend/pom.xml test -Dtest=EvalRecoveryServiceTest`
 Expected: FAIL.
 
-- [ ] **Step 3: Implement `EvalRecoveryService` and `EvalRecoveryBootstrap`**
+- [x] **Step 3: Implement `EvalRecoveryService` and `EvalRecoveryBootstrap`**
 
-- [ ] **Step 4: Run tests to verify pass**
+- [x] **Step 4: Run tests to verify pass**
 
 Run: `JAVA_HOME="/opt/homebrew/opt/openjdk@21/libexec/openjdk.jdk/Contents/Home" PATH="/opt/homebrew/opt/openjdk@21/bin:$PATH" /opt/homebrew/bin/mvn -f backend/pom.xml test`
 Expected: PASS.
 
-- [ ] **Step 5: Commit and push**
+- [x] **Step 5: Commit and push**
 
 ```bash
 git add backend/src/main/java/io/tracedelta/runner/EvalRecoveryService.java backend/src/main/java/io/tracedelta/runner/EvalRecoveryBootstrap.java backend/src/test/java/io/tracedelta/runner/EvalRecoveryServiceTest.java
