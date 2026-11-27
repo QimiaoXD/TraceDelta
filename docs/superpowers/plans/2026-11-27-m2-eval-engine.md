@@ -332,7 +332,7 @@ git push origin feat/m2-eval-engine
     - `BigDecimal getUsedCostUsd()`, `long getUsedTotalTokens()`
   - `RunControlHandle`: holds `runId`, `AtomicBoolean cancelRequested`, `AtomicBoolean rateLimitDegraded`, `RunBudgetTracker`, `Semaphore runSemaphore`.
 
-- [ ] **Step 1: Write failing tests `RetryPolicyTest.java` & `RunBudgetTrackerTest.java`**
+- [x] **Step 1: Write failing tests `RetryPolicyTest.java` & `RunBudgetTrackerTest.java`**
 
 Tests must assert:
 - `RetryPolicyTest`:
@@ -345,19 +345,19 @@ Tests must assert:
   - Pre-seeded initial usage (simulating crash recovery): `initialTotalTokens=90, maxTotalTokens=100`, adding 15 tokens immediately trips breaker (Review Focus #2).
   - Thread-safety under 32 concurrent virtual threads calling `recordUsage` simultaneously.
 
-- [ ] **Step 2: Run tests to verify failure**
+- [x] **Step 2: Run tests to verify failure**
 
 Run: `JAVA_HOME="/opt/homebrew/opt/openjdk@21/libexec/openjdk.jdk/Contents/Home" PATH="/opt/homebrew/opt/openjdk@21/bin:$PATH" /opt/homebrew/bin/mvn -f backend/pom.xml test -Dtest=RetryPolicyTest,RunBudgetTrackerTest`
 Expected: FAIL.
 
-- [ ] **Step 3: Implement `RetryPolicy`, `RunBudgetTracker`, and `RunControlHandle`**
+- [x] **Step 3: Implement `RetryPolicy`, `RunBudgetTracker`, and `RunControlHandle`**
 
-- [ ] **Step 4: Run tests to verify pass**
+- [x] **Step 4: Run tests to verify pass**
 
 Run: `JAVA_HOME="/opt/homebrew/opt/openjdk@21/libexec/openjdk.jdk/Contents/Home" PATH="/opt/homebrew/opt/openjdk@21/bin:$PATH" /opt/homebrew/bin/mvn -f backend/pom.xml test`
 Expected: PASS.
 
-- [ ] **Step 5: Commit and push**
+- [x] **Step 5: Commit and push**
 
 ```bash
 git add backend/src/main/java/io/tracedelta/runner/RetryPolicy.java backend/src/main/java/io/tracedelta/runner/RunBudgetTracker.java backend/src/main/java/io/tracedelta/runner/RunControlHandle.java backend/src/test/java/io/tracedelta/runner/RetryPolicyTest.java backend/src/test/java/io/tracedelta/runner/RunBudgetTrackerTest.java
