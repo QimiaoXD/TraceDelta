@@ -6,7 +6,9 @@ import io.tracedelta.target.EvalTarget;
 import io.tracedelta.target.TargetConfigSnapshot;
 import io.tracedelta.target.TargetRegistry;
 import io.tracedelta.target.TargetType;
+import io.tracedelta.trace.TraceSpanWriter;
 import java.math.BigDecimal;
+import java.time.Duration;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.Collections;
@@ -35,6 +37,7 @@ public class EvalRunExecutor {
     private final EvalCaseWorker caseWorker;
     private final ExecutorService virtualThreadExecutor;
     private final ObjectMapper objectMapper;
+    private final TraceSpanWriter traceSpanWriter;
 
     private final ConcurrentHashMap<Long, ActiveRunEntry> activeRuns = new ConcurrentHashMap<>();
 
@@ -46,7 +49,8 @@ public class EvalRunExecutor {
             ConcurrencyLimiter concurrencyLimiter,
             EvalCaseWorker caseWorker,
             @Qualifier("virtualThreadExecutor") ExecutorService virtualThreadExecutor,
-            ObjectMapper objectMapper) {
+            ObjectMapper objectMapper,
+            TraceSpanWriter traceSpanWriter) {
         this.runMapper = runMapper;
         this.resultMapper = resultMapper;
         this.attemptMapper = attemptMapper;
@@ -55,6 +59,7 @@ public class EvalRunExecutor {
         this.caseWorker = caseWorker;
         this.virtualThreadExecutor = virtualThreadExecutor;
         this.objectMapper = objectMapper;
+        this.traceSpanWriter = traceSpanWriter;
     }
 
     public CompletableFuture<Void> submitRun(Long runId) {
@@ -197,10 +202,18 @@ public class EvalRunExecutor {
     }
 
     void finalizeRun(Long runId, RunControlHandle handle, Throwable engineError) {
+        // Best-effort bounded flush so immediate UI polls observe persisted TraceSpans and accurate drop flags
+        traceSpanWriter.flushAll(Duration.ofSeconds(2));
+
         EvalRunEntity run = runMapper.selectById(runId);
         if (run == null) {
             return;
         }
+        int writerDropped = traceSpanWriter.droppedCountForRun(runId);
+        int existingDropped = run.getTraceDroppedCount() == null ? 0 : run.getTraceDroppedCount();
+        int totalDropped = Math.max(existingDropped, writerDropped);
+        run.setTraceDroppedCount(totalDropped);
+        run.setTraceIncomplete(Boolean.TRUE.equals(run.getTraceIncomplete()) || totalDropped > 0);
 
         LocalDateTime now = LocalDateTime.now();
         boolean cancelled = Boolean.TRUE.equals(run.getCancelRequested()) || handle.isCancelRequested();

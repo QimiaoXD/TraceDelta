@@ -13,7 +13,17 @@ public interface TraceSpanMapper extends BaseMapper<TraceSpanEntity> {
     @Select("""
             SELECT * FROM trace_span
             WHERE trace_id = #{traceId}
-            ORDER BY start_time_ms ASC, id ASC
+            ORDER BY
+                start_time_ms ASC,
+                CASE WHEN parent_span_id IS NULL THEN 0 ELSE 1 END ASC,
+                CASE span_kind
+                    WHEN 'CASE_ROOT' THEN 0
+                    WHEN 'ATTEMPT' THEN 1
+                    WHEN 'PROMPT_RENDER' THEN 2
+                    WHEN 'TEMPLATE_RENDER' THEN 2
+                    ELSE 3
+                END ASC,
+                id ASC
             """)
     List<TraceSpanEntity> findByTraceIdOrdered(@Param("traceId") String traceId);
 

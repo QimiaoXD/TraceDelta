@@ -14,6 +14,7 @@ public record EvalRunSummaryView(
         Integer datasetVersionNo,
         String targetType,
         Long providerId,
+        Long httpTargetId,
         String providerNameSnapshot,
         String modelSnapshot,
         Integer concurrency,
@@ -32,6 +33,8 @@ public record EvalRunSummaryView(
         Integer interruptedAttemptCount,
         Boolean rateLimitDegraded,
         Boolean cancelRequested,
+        Boolean traceIncomplete,
+        Integer traceDroppedCount,
         LocalDateTime createdAt,
         LocalDateTime startedAt,
         LocalDateTime finishedAt) {
@@ -48,6 +51,7 @@ public record EvalRunSummaryView(
                 e.getDatasetVersionNo(),
                 e.getTargetType(),
                 e.getProviderId(),
+                e.getHttpTargetId(),
                 e.getProviderNameSnapshot(),
                 e.getModelSnapshot(),
                 e.getConcurrency(),
@@ -66,6 +70,8 @@ public record EvalRunSummaryView(
                 e.getInterruptedAttemptCount(),
                 e.getRateLimitDegraded(),
                 e.getCancelRequested(),
+                Boolean.TRUE.equals(e.getTraceIncomplete()),
+                e.getTraceDroppedCount() == null ? 0 : e.getTraceDroppedCount(),
                 e.getCreatedAt(),
                 e.getStartedAt(),
                 e.getFinishedAt());

@@ -18,6 +18,8 @@ import io.tracedelta.target.CaseSnapshot;
 import io.tracedelta.target.TargetConfigSnapshot;
 import io.tracedelta.target.TargetRegistry;
 import io.tracedelta.target.TargetType;
+import io.tracedelta.trace.TraceIdGenerator;
+import io.tracedelta.trace.TraceSpanMapper;
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
 import java.util.List;
@@ -30,6 +32,7 @@ public class EvalRunService {
     private final EvalRunMapper runMapper;
     private final EvalResultMapper resultMapper;
     private final EvalAttemptMapper attemptMapper;
+    private final TraceSpanMapper traceSpanMapper;
     private final DatasetMapper datasetMapper;
     private final DatasetVersionMapper versionMapper;
     private final DatasetCaseMapper caseMapper;
@@ -44,6 +47,7 @@ public class EvalRunService {
             EvalRunMapper runMapper,
             EvalResultMapper resultMapper,
             EvalAttemptMapper attemptMapper,
+            TraceSpanMapper traceSpanMapper,
             DatasetMapper datasetMapper,
             DatasetVersionMapper versionMapper,
             DatasetCaseMapper caseMapper,
@@ -56,6 +60,7 @@ public class EvalRunService {
         this.runMapper = runMapper;
         this.resultMapper = resultMapper;
         this.attemptMapper = attemptMapper;
+        this.traceSpanMapper = traceSpanMapper;
         this.datasetMapper = datasetMapper;
         this.versionMapper = versionMapper;
         this.caseMapper = caseMapper;
@@ -185,6 +190,8 @@ public class EvalRunService {
             run.setInterruptedAttemptCount(0);
             run.setRateLimitDegraded(false);
             run.setCancelRequested(false);
+            run.setTraceIncomplete(false);
+            run.setTraceDroppedCount(0);
             run.setCreatedAt(now);
             run.setUpdatedAt(now);
             runMapper.insert(run);
@@ -202,6 +209,7 @@ public class EvalRunService {
                 result.setCaseKey(c.getCaseKey());
                 result.setCaseHash(c.getCaseHash());
                 result.setCaseSnapshotJson(writeJson(cs));
+                result.setTraceId(TraceIdGenerator.newTraceId());
                 result.setStatus(EvalResultStatus.PENDING.name());
                 result.setScoreConclusion(EvalScoreConclusion.UNSCORED.name());
                 result.setAttemptCount(0);
@@ -287,6 +295,7 @@ public class EvalRunService {
                         ErrorCode.INVALID_STATE,
                         "运行中的评测任务无法直接删除，请先取消并等待其进入终态: " + current.name());
             }
+            traceSpanMapper.deleteByRunId(runId);
             attemptMapper.delete(new LambdaQueryWrapper<EvalAttemptEntity>()
                     .eq(EvalAttemptEntity::getRunId, runId));
             resultMapper.delete(new LambdaQueryWrapper<EvalResultEntity>()

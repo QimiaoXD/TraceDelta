@@ -9,9 +9,18 @@ import io.tracedelta.target.EvalTarget;
 import io.tracedelta.target.TargetConfigSnapshot;
 import io.tracedelta.target.TargetExecutionContext;
 import io.tracedelta.target.TargetExecutionResult;
+import io.tracedelta.trace.SpanDraft;
+import io.tracedelta.trace.SpanKind;
+import io.tracedelta.trace.SpanStatus;
+import io.tracedelta.trace.TraceIdGenerator;
+import io.tracedelta.trace.TraceSpanEntity;
+import io.tracedelta.trace.TraceSpanWriter;
 import java.math.BigDecimal;
 import java.time.Duration;
 import java.time.LocalDateTime;
+import java.util.LinkedHashMap;
+import java.util.List;
+import java.util.Map;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Component;
@@ -28,6 +37,7 @@ public class EvalCaseWorker {
     private final RateLimiter rateLimiter;
     private final RetryPolicy retryPolicy;
     private final ObjectMapper objectMapper;
+    private final TraceSpanWriter traceSpanWriter;
 
     public EvalCaseWorker(
             EvalResultMapper resultMapper,
@@ -35,13 +45,15 @@ public class EvalCaseWorker {
             ConcurrencyLimiter concurrencyLimiter,
             RateLimiter rateLimiter,
             RetryPolicy retryPolicy,
-            ObjectMapper objectMapper) {
+            ObjectMapper objectMapper,
+            TraceSpanWriter traceSpanWriter) {
         this.resultMapper = resultMapper;
         this.attemptMapper = attemptMapper;
         this.concurrencyLimiter = concurrencyLimiter;
         this.rateLimiter = rateLimiter;
         this.retryPolicy = retryPolicy;
         this.objectMapper = objectMapper;
+        this.traceSpanWriter = traceSpanWriter;
     }
 
     public boolean executeCase(
@@ -64,12 +76,16 @@ public class EvalCaseWorker {
         if (result == null) {
             return false;
         }
+        String traceId = ensureTraceId(result);
+        String caseRootSpanId = TraceIdGenerator.newSpanId();
+        long caseStartMs = System.currentTimeMillis();
 
         CaseSnapshot caseSnapshot;
         try {
             caseSnapshot = objectMapper.readValue(result.getCaseSnapshotJson(), CaseSnapshot.class);
         } catch (Exception ex) {
             markResultFailed(result, "SNAPSHOT_CORRUPT", "Failed to parse frozen case snapshot: " + ex.getMessage());
+            emitCaseRootSpan(traceId, caseRootSpanId, run, result, caseStartMs, false, "SNAPSHOT_CORRUPT", ex.getMessage());
             return true;
         }
 
@@ -81,11 +97,15 @@ public class EvalCaseWorker {
         while (attemptNo <= run.getMaxAttempts()) {
             if (!concurrencyLimiter.acquireGlobalPermit(handle::isCancelRequested)) {
                 markInterruptedByCancel(result, firstAttemptExecuted);
+                emitCaseRootSpan(traceId, caseRootSpanId, run, result, caseStartMs, false, "CANCELLED", "Cancelled waiting for global permit");
                 return true;
             }
 
             LlmResponse response;
+            List<SpanDraft> childSpans = List.of();
             EvalAttemptEntity attempt = null;
+            String attemptSpanId = TraceIdGenerator.newSpanId();
+            long attemptStartMs = System.currentTimeMillis();
             try {
                 boolean gotToken = rateLimiter.acquireBlocking(
                         rateLimitKey,
@@ -95,9 +115,11 @@ public class EvalCaseWorker {
                         handle.rateLimitDegradedFlag());
                 if (!gotToken) {
                     markInterruptedByCancel(result, firstAttemptExecuted);
+                    emitCaseRootSpan(traceId, caseRootSpanId, run, result, caseStartMs, false, "CANCELLED", "Cancelled waiting for rate limit token");
                     return true;
                 }
 
+                attemptStartMs = System.currentTimeMillis();
                 attempt = new EvalAttemptEntity();
                 attempt.setRunId(run.getId());
                 attempt.setEvalResultId(result.getId());
@@ -114,6 +136,7 @@ public class EvalCaseWorker {
                 TargetExecutionResult execResult = target.execute(
                         new TargetExecutionContext(targetConfig, caseSnapshot, attemptNo, requestTimeout));
                 response = execResult.response();
+                childSpans = execResult.spans();
             } catch (Exception ex) {
                 log.warn("Unexpected target error: runId={} caseKey={} attempt={}", run.getId(), result.getCaseKey(), attemptNo, ex);
                 response = LlmResponse.failure(0L, LlmErrorType.HTTP_ERROR, "Target execution error: " + ex.getMessage());
@@ -121,7 +144,10 @@ public class EvalCaseWorker {
                 concurrencyLimiter.releaseGlobalPermit();
             }
 
+            long attemptEndMs = Math.max(attemptStartMs, System.currentTimeMillis());
             finalizeAttempt(attempt, response);
+            emitAttemptAndChildSpans(traceId, caseRootSpanId, attemptSpanId, run, result, attemptNo, attemptStartMs, attemptEndMs, response, childSpans);
+
             handle.budgetTracker().recordUsage(
                     response.estimatedCost(),
                     response.inputTokens(),
@@ -129,6 +155,7 @@ public class EvalCaseWorker {
 
             if (response.errorType() == LlmErrorType.NONE) {
                 markResultSucceeded(result, response);
+                emitCaseRootSpan(traceId, caseRootSpanId, run, result, caseStartMs, true, null, null);
                 return true;
             }
 
@@ -136,6 +163,7 @@ public class EvalCaseWorker {
             boolean hasRemainingAttempts = attemptNo < run.getMaxAttempts();
             if (!retryable || !hasRemainingAttempts || handle.isStopDispatching()) {
                 markResultFailed(result, response.errorType().name(), response.errorMessage());
+                emitCaseRootSpan(traceId, caseRootSpanId, run, result, caseStartMs, false, response.errorType().name(), response.errorMessage());
                 return true;
             }
 
@@ -147,6 +175,9 @@ public class EvalCaseWorker {
                         result,
                         handle.isCancelRequested() ? "CANCELLED" : "BUDGET_EXCEEDED",
                         "Retry aborted before next attempt");
+                emitCaseRootSpan(traceId, caseRootSpanId, run, result, caseStartMs, false,
+                        handle.isCancelRequested() ? "CANCELLED" : "BUDGET_EXCEEDED",
+                        "Retry aborted before next attempt");
                 return true;
             }
 
@@ -154,6 +185,7 @@ public class EvalCaseWorker {
                     result.getId(), run.getMaxAttempts(), LocalDateTime.now());
             if (incremented == 0) {
                 markResultFailed(result, response.errorType().name(), response.errorMessage());
+                emitCaseRootSpan(traceId, caseRootSpanId, run, result, caseStartMs, false, response.errorType().name(), response.errorMessage());
                 return true;
             }
             attemptNo++;
@@ -161,6 +193,7 @@ public class EvalCaseWorker {
         }
 
         markResultFailed(result, "MAX_ATTEMPTS_EXHAUSTED", "Max attempts exhausted");
+        emitCaseRootSpan(traceId, caseRootSpanId, run, result, caseStartMs, false, "MAX_ATTEMPTS_EXHAUSTED", "Max attempts exhausted");
         return true;
     }
 
@@ -231,6 +264,132 @@ public class EvalCaseWorker {
         result.setFinishedAt(now);
         result.setUpdatedAt(now);
         resultMapper.updateById(result);
+    }
+
+    private String ensureTraceId(EvalResultEntity result) {
+        if (result.getTraceId() != null && !result.getTraceId().isBlank()) {
+            return result.getTraceId();
+        }
+        String generated = TraceIdGenerator.newTraceId();
+        result.setTraceId(generated);
+        resultMapper.updateById(result);
+        return generated;
+    }
+
+    private void emitAttemptAndChildSpans(
+            String traceId,
+            String caseRootSpanId,
+            String attemptSpanId,
+            EvalRunEntity run,
+            EvalResultEntity result,
+            int attemptNo,
+            long attemptStartMs,
+            long attemptEndMs,
+            LlmResponse response,
+            List<SpanDraft> childSpans) {
+        boolean ok = response.errorType() == LlmErrorType.NONE;
+        TraceSpanEntity attemptSpan = new TraceSpanEntity();
+        attemptSpan.setTraceId(traceId);
+        attemptSpan.setSpanId(attemptSpanId);
+        attemptSpan.setParentSpanId(caseRootSpanId);
+        attemptSpan.setRunId(run.getId());
+        attemptSpan.setEvalResultId(result.getId());
+        attemptSpan.setCaseKey(result.getCaseKey());
+        attemptSpan.setAttemptNo(attemptNo);
+        attemptSpan.setSpanName("eval.attempt #" + attemptNo);
+        attemptSpan.setSpanKind(SpanKind.ATTEMPT.name());
+        attemptSpan.setStatus(ok ? SpanStatus.OK.name() : SpanStatus.ERROR.name());
+        attemptSpan.setStartTimeMs(attemptStartMs);
+        attemptSpan.setEndTimeMs(attemptEndMs);
+        attemptSpan.setDurationMs(Math.max(0L, attemptEndMs - attemptStartMs));
+        attemptSpan.setTtftMs(response.ttftMs());
+        attemptSpan.setInputTokens(response.inputTokens());
+        attemptSpan.setOutputTokens(response.outputTokens());
+        attemptSpan.setEstimatedCostUsd(response.estimatedCost() == null ? BigDecimal.ZERO : response.estimatedCost());
+        attemptSpan.setErrorType(ok ? null : response.errorType().name());
+        attemptSpan.setErrorMessage(ok ? null : truncate(response.errorMessage()));
+        Map<String, Object> attrs = new LinkedHashMap<>();
+        attrs.put("tracedelta.attempt_no", attemptNo);
+        attrs.put("tracedelta.target_type", run.getTargetType());
+        attemptSpan.setAttributesJson(writeJsonQuietly(attrs));
+        attemptSpan.setCreatedAt(LocalDateTime.now());
+        traceSpanWriter.submit(attemptSpan);
+
+        for (SpanDraft draft : childSpans) {
+            TraceSpanEntity child = new TraceSpanEntity();
+            child.setTraceId(traceId);
+            child.setSpanId(TraceIdGenerator.newSpanId());
+            child.setParentSpanId(attemptSpanId);
+            child.setRunId(run.getId());
+            child.setEvalResultId(result.getId());
+            child.setCaseKey(result.getCaseKey());
+            child.setAttemptNo(attemptNo);
+            child.setSpanName(draft.spanName());
+            child.setSpanKind(draft.spanKind().name());
+            child.setStatus(draft.status().name());
+            child.setStartTimeMs(draft.startTimeMs());
+            child.setEndTimeMs(draft.endTimeMs());
+            child.setDurationMs(Math.max(0L, draft.endTimeMs() - draft.startTimeMs()));
+            child.setTtftMs(draft.ttftMs());
+            child.setInputTokens(draft.inputTokens());
+            child.setOutputTokens(draft.outputTokens());
+            child.setEstimatedCostUsd(draft.estimatedCostUsd());
+            child.setInputPayload(draft.inputPayload());
+            child.setOutputPayload(draft.outputPayload());
+            child.setAttributesJson(draft.attributes() == null ? null : writeJsonQuietly(draft.attributes()));
+            child.setErrorType(draft.errorType());
+            child.setErrorMessage(truncate(draft.errorMessage()));
+            child.setCreatedAt(LocalDateTime.now());
+            traceSpanWriter.submit(child);
+        }
+    }
+
+    private void emitCaseRootSpan(
+            String traceId,
+            String caseRootSpanId,
+            EvalRunEntity run,
+            EvalResultEntity result,
+            long caseStartMs,
+            boolean succeeded,
+            String errorType,
+            String errorMessage) {
+        long caseEndMs = Math.max(caseStartMs, System.currentTimeMillis());
+        TraceSpanEntity root = new TraceSpanEntity();
+        root.setTraceId(traceId);
+        root.setSpanId(caseRootSpanId);
+        root.setParentSpanId(null);
+        root.setRunId(run.getId());
+        root.setEvalResultId(result.getId());
+        root.setCaseKey(result.getCaseKey());
+        root.setAttemptNo(0);
+        root.setSpanName("eval.case");
+        root.setSpanKind(SpanKind.CASE_ROOT.name());
+        root.setStatus(succeeded ? SpanStatus.OK.name() : SpanStatus.ERROR.name());
+        root.setStartTimeMs(caseStartMs);
+        root.setEndTimeMs(caseEndMs);
+        root.setDurationMs(Math.max(0L, caseEndMs - caseStartMs));
+        root.setInputTokens(result.getInputTokens());
+        root.setOutputTokens(result.getOutputTokens());
+        root.setEstimatedCostUsd(result.getEstimatedCostUsd());
+        root.setOutputPayload(result.getOutputText());
+        root.setErrorType(errorType);
+        root.setErrorMessage(truncate(errorMessage));
+        Map<String, Object> attrs = new LinkedHashMap<>();
+        attrs.put("tracedelta.case_key", result.getCaseKey());
+        attrs.put("tracedelta.case_hash", result.getCaseHash());
+        attrs.put("tracedelta.target_type", run.getTargetType());
+        attrs.put("tracedelta.attempt_count", result.getAttemptCount());
+        root.setAttributesJson(writeJsonQuietly(attrs));
+        root.setCreatedAt(LocalDateTime.now());
+        traceSpanWriter.submit(root);
+    }
+
+    private String writeJsonQuietly(Object obj) {
+        try {
+            return objectMapper.writeValueAsString(obj);
+        } catch (Exception ex) {
+            return null;
+        }
     }
 
     private static String truncate(String msg) {
