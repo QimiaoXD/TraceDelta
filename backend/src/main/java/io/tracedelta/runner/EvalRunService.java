@@ -18,9 +18,12 @@ import io.tracedelta.target.CaseSnapshot;
 import io.tracedelta.target.TargetConfigSnapshot;
 import io.tracedelta.target.TargetRegistry;
 import io.tracedelta.target.TargetType;
+import io.tracedelta.target.http.HttpTargetEntity;
+import io.tracedelta.target.http.HttpTargetService;
 import io.tracedelta.trace.TraceIdGenerator;
 import io.tracedelta.trace.TraceSpanMapper;
 import java.math.BigDecimal;
+import java.net.URI;
 import java.time.LocalDateTime;
 import java.util.List;
 import org.springframework.stereotype.Service;
@@ -37,6 +40,7 @@ public class EvalRunService {
     private final DatasetVersionMapper versionMapper;
     private final DatasetCaseMapper caseMapper;
     private final ProviderService providerService;
+    private final HttpTargetService httpTargetService;
     private final TargetRegistry targetRegistry;
     private final RunnerProperties properties;
     private final EvalRunExecutor runExecutor;
@@ -52,6 +56,7 @@ public class EvalRunService {
             DatasetVersionMapper versionMapper,
             DatasetCaseMapper caseMapper,
             ProviderService providerService,
+            HttpTargetService httpTargetService,
             TargetRegistry targetRegistry,
             RunnerProperties properties,
             EvalRunExecutor runExecutor,
@@ -65,6 +70,7 @@ public class EvalRunService {
         this.versionMapper = versionMapper;
         this.caseMapper = caseMapper;
         this.providerService = providerService;
+        this.httpTargetService = httpTargetService;
         this.targetRegistry = targetRegistry;
         this.properties = properties;
         this.runExecutor = runExecutor;
@@ -95,11 +101,9 @@ public class EvalRunService {
             throw new BizException(ErrorCode.VALIDATION_ERROR, "数据集版本不包含任何用例");
         }
 
-        ProviderConfigEntity provider = providerService.getEntity(request.providerId());
         TargetType targetType = request.targetType() == null ? TargetType.PROMPT : request.targetType();
         targetRegistry.get(targetType);
 
-        String model = isBlank(request.model()) ? provider.getDefaultModel() : request.model().trim();
         int concurrency = request.concurrency() == null ? properties.getDefaultConcurrency() : request.concurrency();
         if (concurrency < 1 || concurrency > properties.getGlobalMaxConcurrency()) {
             throw new BizException(
@@ -110,9 +114,48 @@ public class EvalRunService {
         if (maxAttempts < 1 || maxAttempts > 10) {
             throw new BizException(ErrorCode.VALIDATION_ERROR, "maxAttempts 必须在 1 到 10 之间");
         }
-        long timeoutMs = request.requestTimeoutMs() == null
-                ? properties.getDefaultRequestTimeoutMs()
-                : request.requestTimeoutMs();
+
+        Long providerId = null;
+        Long httpTargetId = null;
+        String targetDisplayName;
+        String modelDisplay;
+        long defaultTimeout = properties.getDefaultRequestTimeoutMs();
+        TargetConfigSnapshot targetSnapshot;
+
+        if (targetType == TargetType.HTTP) {
+            if (request.httpTargetId() == null) {
+                throw new BizException(ErrorCode.VALIDATION_ERROR, "HTTP 目标评测必须指定 httpTargetId");
+            }
+            HttpTargetEntity httpTarget = httpTargetService.getEntity(request.httpTargetId());
+            httpTargetId = httpTarget.getId();
+            targetDisplayName = httpTarget.getName();
+            modelDisplay = httpTarget.getHttpMethod() + " " + summarizeUrl(httpTarget.getUrl());
+            if (httpTarget.getDefaultTimeoutMs() != null) {
+                defaultTimeout = httpTarget.getDefaultTimeoutMs();
+            }
+            targetSnapshot = TargetConfigSnapshot.forHttp(httpTarget);
+        } else {
+            if (request.providerId() == null) {
+                throw new BizException(ErrorCode.VALIDATION_ERROR, "Prompt 目标评测必须指定 providerId");
+            }
+            ProviderConfigEntity provider = providerService.getEntity(request.providerId());
+            providerId = provider.getId();
+            targetDisplayName = provider.getName();
+            modelDisplay = isBlank(request.model()) ? provider.getDefaultModel() : request.model().trim();
+            targetSnapshot = new TargetConfigSnapshot(
+                    targetType,
+                    provider.getId(),
+                    provider.getName(),
+                    ProviderType.valueOf(provider.getProviderType()),
+                    provider.getBaseUrl(),
+                    modelDisplay,
+                    provider.getPricingJson(),
+                    provider.getMockConfigJson(),
+                    isBlank(request.systemPrompt()) ? null : request.systemPrompt().trim(),
+                    isBlank(request.userPromptTemplate()) ? "{{question}}" : request.userPromptTemplate());
+        }
+
+        long timeoutMs = request.requestTimeoutMs() == null ? defaultTimeout : request.requestTimeoutMs();
         if (timeoutMs < 1_000L || timeoutMs > 300_000L) {
             throw new BizException(ErrorCode.VALIDATION_ERROR, "requestTimeoutMs 必须在 1000 到 300000 之间");
         }
@@ -136,22 +179,14 @@ public class EvalRunService {
         }
 
         String runName = isBlank(request.name())
-                ? dataset.getName() + " v" + version.getVersionNo() + " · " + model
+                ? dataset.getName() + " v" + version.getVersionNo() + " · " + (targetType == TargetType.HTTP ? targetDisplayName : modelDisplay)
                 : request.name().trim();
 
-        TargetConfigSnapshot targetSnapshot = new TargetConfigSnapshot(
-                targetType,
-                provider.getId(),
-                provider.getName(),
-                ProviderType.valueOf(provider.getProviderType()),
-                provider.getBaseUrl(),
-                model,
-                provider.getPricingJson(),
-                provider.getMockConfigJson(),
-                isBlank(request.systemPrompt()) ? null : request.systemPrompt().trim(),
-                isBlank(request.userPromptTemplate()) ? "{{question}}" : request.userPromptTemplate());
-
         String targetSnapshotJson = writeJson(targetSnapshot);
+        final Long finalProviderId = providerId;
+        final Long finalHttpTargetId = httpTargetId;
+        final String finalTargetDisplayName = targetDisplayName;
+        final String finalModelDisplay = modelDisplay;
 
         // Commit run + pending results BEFORE dispatching virtual threads so workers always read committed rows
         EvalRunEntity created = transactionTemplate.execute(status -> {
@@ -165,9 +200,10 @@ public class EvalRunService {
             run.setDatasetNameSnapshot(dataset.getName());
             run.setDatasetVersionNo(version.getVersionNo());
             run.setTargetType(targetType.name());
-            run.setProviderId(provider.getId());
-            run.setProviderNameSnapshot(provider.getName());
-            run.setModelSnapshot(model);
+            run.setProviderId(finalProviderId);
+            run.setHttpTargetId(finalHttpTargetId);
+            run.setProviderNameSnapshot(finalTargetDisplayName);
+            run.setModelSnapshot(finalModelDisplay);
             run.setTargetConfigSnapshotJson(targetSnapshotJson);
             run.setConcurrency(concurrency);
             run.setMaxAttempts(maxAttempts);
@@ -317,6 +353,18 @@ public class EvalRunService {
             return objectMapper.writeValueAsString(obj);
         } catch (JsonProcessingException ex) {
             throw new IllegalStateException("Failed to serialize snapshot JSON", ex);
+        }
+    }
+
+    private static String summarizeUrl(String rawUrl) {
+        try {
+            URI uri = URI.create(rawUrl);
+            String hostPort = uri.getPort() > 0 ? uri.getHost() + ":" + uri.getPort() : uri.getHost();
+            String path = uri.getPath() == null ? "" : uri.getPath();
+            String summary = hostPort + path;
+            return summary.length() <= 100 ? summary : summary.substring(0, 100);
+        } catch (Exception ex) {
+            return rawUrl == null ? "" : (rawUrl.length() <= 100 ? rawUrl : rawUrl.substring(0, 100));
         }
     }
 

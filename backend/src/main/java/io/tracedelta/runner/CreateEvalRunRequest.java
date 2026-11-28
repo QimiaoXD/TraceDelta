@@ -9,7 +9,8 @@ public record CreateEvalRunRequest(
         @NotNull(message = "datasetId 不能为空") Long datasetId,
         @NotNull(message = "datasetVersionNo 不能为空") Integer datasetVersionNo,
         TargetType targetType,
-        @NotNull(message = "providerId 不能为空") Long providerId,
+        Long providerId,
+        Long httpTargetId,
         String model,
         String systemPrompt,
         String userPromptTemplate,
@@ -20,4 +21,39 @@ public record CreateEvalRunRequest(
         Integer rateLimitBurst,
         BigDecimal maxCostUsd,
         Long maxTotalTokens) {
+
+    public CreateEvalRunRequest(
+            String name,
+            Long datasetId,
+            Integer datasetVersionNo,
+            TargetType targetType,
+            Long providerId,
+            String model,
+            String systemPrompt,
+            String userPromptTemplate,
+            Integer concurrency,
+            Integer maxAttempts,
+            Long requestTimeoutMs,
+            Double rateLimitPerSec,
+            Integer rateLimitBurst,
+            BigDecimal maxCostUsd,
+            Long maxTotalTokens) {
+        this(
+                name,
+                datasetId,
+                datasetVersionNo,
+                targetType,
+                providerId,
+                null,
+                model,
+                systemPrompt,
+                userPromptTemplate,
+                concurrency,
+                maxAttempts,
+                requestTimeoutMs,
+                rateLimitPerSec,
+                rateLimitBurst,
+                maxCostUsd,
+                maxTotalTokens);
+    }
 }
