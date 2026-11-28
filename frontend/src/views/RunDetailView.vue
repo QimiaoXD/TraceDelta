@@ -15,7 +15,9 @@ import {
   type EvalRunDetail,
 } from '../api/run'
 import { useConsoleDataStore } from '../stores/consoleData'
+import { getResultTraceApi, type TraceDetail } from '../api/trace'
 import TdIcon from '../components/TdIcon.vue'
+import TraceWaterfall from '../components/TraceWaterfall.vue'
 import { copyText, formatDateTime, prettyJson } from '../utils/format'
 import {
   attemptStatusMeta,
@@ -46,10 +48,14 @@ const resultFilter = ref<'ALL' | EvalResultStatus>('ALL')
 const keyword = ref('')
 
 const drawerVisible = ref(false)
+const drawerTab = ref<'trace' | 'attempts'>('trace')
 const selectedResult = ref<EvalResultItem | null>(null)
 const attempts = ref<EvalAttemptItem[]>([])
 const attemptsLoading = ref(false)
 const attemptsError = ref('')
+const traceDetail = ref<TraceDetail | null>(null)
+const traceLoading = ref(false)
+const traceError = ref('')
 
 let pollTimer: number | null = null
 
@@ -184,19 +190,39 @@ async function handleDelete() {
   }
 }
 
-async function openInspector(item: EvalResultItem) {
+async function openInspector(item: EvalResultItem, initialTab: 'trace' | 'attempts' = 'trace') {
   selectedResult.value = item
+  drawerTab.value = initialTab
   drawerVisible.value = true
   attempts.value = []
   attemptsError.value = ''
   attemptsLoading.value = true
-  try {
-    attempts.value = await listResultAttemptsApi(runId.value, item.id)
-  } catch (err) {
-    attemptsError.value = err instanceof Error ? err.message : '加载尝试记录失败'
-  } finally {
-    attemptsLoading.value = false
-  }
+  traceDetail.value = null
+  traceError.value = ''
+  traceLoading.value = true
+
+  await Promise.all([
+    listResultAttemptsApi(runId.value, item.id)
+      .then((res) => {
+        attempts.value = res
+      })
+      .catch((err) => {
+        attemptsError.value = err instanceof Error ? err.message : '加载尝试记录失败'
+      })
+      .finally(() => {
+        attemptsLoading.value = false
+      }),
+    getResultTraceApi(runId.value, item.id)
+      .then((res) => {
+        traceDetail.value = res
+      })
+      .catch((err) => {
+        traceError.value = err instanceof Error ? err.message : '加载 Trace 链路失败'
+      })
+      .finally(() => {
+        traceLoading.value = false
+      }),
+  ])
 }
 
 async function copyCaseHash(hash: string) {
@@ -305,6 +331,17 @@ onBeforeUnmount(() => {
         <div class="notice-content">
           <strong>Redis 限流已自动降级为本机内存令牌桶</strong>
           <p>执行期间检测到 Redis 不可用，已平滑切换至本地令牌桶继续保障渠道限流，未中断评测批次。</p>
+        </div>
+      </div>
+
+      <div v-if="run.traceIncomplete" class="notice-banner notice-banner--warning" role="status">
+        <TdIcon name="alert-triangle" :size="16" class="notice-icon" />
+        <div class="notice-content">
+          <strong>诊断 Trace 不完整（有界队列背压丢弃 {{ run.traceDroppedCount }} 条 Span）</strong>
+          <p>
+            为防止内存耗尽，部分诊断链路记录在异步写入队列满且同步回退失败后被丢弃；核心评测结果与
+            <code class="mono">EvalAttempt</code> 记录均已同步落库，不受影响。
+          </p>
         </div>
       </div>
 
@@ -485,8 +522,9 @@ onBeforeUnmount(() => {
                 <span v-else class="cell-muted">—</span>
               </td>
               <td class="col-actions">
-                <button type="button" class="btn btn--secondary btn--sm" @click="openInspector(item)">
-                  <span>尝试记录</span>
+                <button type="button" class="btn btn--secondary btn--sm" @click="openInspector(item, 'trace')">
+                  <TdIcon name="layers" :size="12" />
+                  <span>链路 / 详情</span>
                 </button>
               </td>
             </tr>
@@ -494,11 +532,11 @@ onBeforeUnmount(() => {
         </table>
       </div>
 
-      <!-- Case & EvalAttempt Inspector Drawer -->
+      <!-- Case, Trace Waterfall & EvalAttempt Inspector Drawer -->
       <el-drawer
         v-model="drawerVisible"
         :title="selectedResult ? `用例详情 · ${selectedResult.caseKey}` : '用例详情'"
-        size="560px"
+        size="720px"
       >
         <div v-if="selectedResult" class="drawer-stack">
           <div class="drawer-meta-bar">
@@ -516,10 +554,19 @@ onBeforeUnmount(() => {
               <TdIcon name="copy" :size="12" class="code-pill-icon" />
               <span class="code-pill-text">{{ selectedResult.caseHash.slice(0, 16) }}…</span>
             </button>
+            <router-link
+              v-if="selectedResult.traceId"
+              :to="`/traces/${selectedResult.traceId}`"
+              class="btn btn--secondary btn--sm"
+              style="margin-left: auto"
+            >
+              <TdIcon name="layers" :size="12" />
+              <span>全屏 Trace 回放</span>
+            </router-link>
           </div>
 
           <section v-if="selectedResult.outputText" class="drawer-section">
-            <h3>模型输出</h3>
+            <h3>目标输出</h3>
             <pre class="code-block">{{ selectedResult.outputText }}</pre>
           </section>
 
@@ -533,7 +580,36 @@ onBeforeUnmount(() => {
             </div>
           </section>
 
-          <section class="drawer-section">
+          <div class="seg-control seg-control--sm" role="tablist" aria-label="检查视图切换">
+            <button
+              type="button"
+              role="tab"
+              class="seg-btn"
+              :class="{ 'is-active': drawerTab === 'trace' }"
+              :aria-selected="drawerTab === 'trace'"
+              @click="drawerTab = 'trace'"
+            >
+              Trace 瀑布图（{{ traceDetail?.spans.length ?? 0 }}）
+            </button>
+            <button
+              type="button"
+              role="tab"
+              class="seg-btn"
+              :class="{ 'is-active': drawerTab === 'attempts' }"
+              :aria-selected="drawerTab === 'attempts'"
+              @click="drawerTab = 'attempts'"
+            >
+              EvalAttempt 时间线（{{ attempts.length }}）
+            </button>
+          </div>
+
+          <section v-if="drawerTab === 'trace'" class="drawer-section">
+            <p v-if="traceLoading" class="cell-muted">正在加载 OTel Trace 链路…</p>
+            <div v-else-if="traceError" class="error-banner" role="alert">{{ traceError }}</div>
+            <TraceWaterfall v-else-if="traceDetail" :trace="traceDetail" :compact="true" />
+          </section>
+
+          <section v-else class="drawer-section">
             <h3>EvalAttempt 执行尝试时间线（{{ attempts.length }} 次）</h3>
             <p v-if="attemptsLoading" class="cell-muted">正在加载尝试记录…</p>
             <div v-else-if="attemptsError" class="error-banner" role="alert">{{ attemptsError }}</div>

@@ -9,6 +9,7 @@ import {
   type DatasetVersionItem,
 } from '../api/dataset'
 import { listProvidersApi, type ProviderView } from '../api/provider'
+import { listHttpTargetsApi, type HttpTargetView } from '../api/httpTarget'
 import { listRunsApi, type EvalRunSummary } from '../api/run'
 
 export const useConsoleDataStore = defineStore('consoleData', () => {
@@ -17,6 +18,9 @@ export const useConsoleDataStore = defineStore('consoleData', () => {
 
   const providers = ref<ProviderView[]>([])
   const providersLoaded = ref(false)
+
+  const httpTargets = ref<HttpTargetView[]>([])
+  const httpTargetsLoaded = ref(false)
 
   const runs = ref<EvalRunSummary[]>([])
   const runsLoaded = ref(false)
@@ -37,6 +41,13 @@ export const useConsoleDataStore = defineStore('consoleData', () => {
     const data = await listProvidersApi()
     providers.value = data
     providersLoaded.value = true
+    return data
+  }
+
+  async function fetchHttpTargets(): Promise<HttpTargetView[]> {
+    const data = await listHttpTargetsApi()
+    httpTargets.value = data
+    httpTargetsLoaded.value = true
     return data
   }
 
@@ -134,6 +145,8 @@ export const useConsoleDataStore = defineStore('consoleData', () => {
     datasetsLoaded.value = false
     providers.value = []
     providersLoaded.value = false
+    httpTargets.value = []
+    httpTargetsLoaded.value = false
     runs.value = []
     runsLoaded.value = false
     runNameById.value = {}
@@ -147,10 +160,13 @@ export const useConsoleDataStore = defineStore('consoleData', () => {
     datasetsLoaded,
     providers,
     providersLoaded,
+    httpTargets,
+    httpTargetsLoaded,
     runs,
     runsLoaded,
     fetchDatasets,
     fetchProviders,
+    fetchHttpTargets,
     fetchRuns,
     rememberRunName,
     getCachedRunName,

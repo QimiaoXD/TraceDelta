@@ -40,9 +40,11 @@ const datasetSelectRef = ref<{ focus?: () => void } | null>(null)
 
 const form = reactive({
   name: '',
+  targetType: 'PROMPT' as 'PROMPT' | 'HTTP',
   datasetId: null as number | null,
   datasetVersionNo: null as number | null,
   providerId: null as number | null,
+  httpTargetId: null as number | null,
   model: '',
   systemPrompt: '',
   userPromptTemplate: '{{question}}',
@@ -94,6 +96,10 @@ const selectedDatasetVersions = computed(() => {
 
 const selectedProvider = computed(() =>
   store.providers.find((p) => p.id === form.providerId) ?? null,
+)
+
+const selectedHttpTarget = computed(() =>
+  store.httpTargets.find((t) => t.id === form.httpTargetId) ?? null,
 )
 
 function startOrStopPolling() {
@@ -156,9 +162,11 @@ async function openCreateDialog() {
   formError.value = ''
   showAdvanced.value = false
   form.name = ''
+  form.targetType = 'PROMPT'
   form.datasetId = null
   form.datasetVersionNo = null
   form.providerId = null
+  form.httpTargetId = null
   form.model = ''
   form.systemPrompt = ''
   form.userPromptTemplate = '{{question}}'
@@ -172,9 +180,10 @@ async function openCreateDialog() {
   dialogVisible.value = true
 
   try {
-    const [dsList, provList] = await Promise.all([
+    const [dsList, provList, httpList] = await Promise.all([
       store.fetchDatasets(),
       store.fetchProviders(),
+      store.fetchHttpTargets(),
     ])
     if (dsList.length > 0) {
       form.datasetId = dsList[0].id
@@ -182,8 +191,11 @@ async function openCreateDialog() {
     if (provList.length > 0) {
       form.providerId = provList[0].id
     }
+    if (httpList.length > 0) {
+      form.httpTargetId = httpList[0].id
+    }
   } catch {
-    formError.value = '加载数据集或模型渠道失败，请刷新后重试'
+    formError.value = '加载数据集、模型渠道或外部接口失败，请刷新后重试'
   }
 }
 
@@ -227,8 +239,14 @@ async function handleCreate() {
     formAlertRef.value?.focus()
     return
   }
-  if (!form.providerId) {
+  if (form.targetType === 'PROMPT' && !form.providerId) {
     formError.value = '请选择模型渠道'
+    await nextTick()
+    formAlertRef.value?.focus()
+    return
+  }
+  if (form.targetType === 'HTTP' && !form.httpTargetId) {
+    formError.value = '请选择外部 HTTP 接口目标（可先在「外部接口」页面创建）'
     await nextTick()
     formAlertRef.value?.focus()
     return
@@ -278,11 +296,13 @@ async function handleCreate() {
     name: form.name.trim() || undefined,
     datasetId: form.datasetId,
     datasetVersionNo: form.datasetVersionNo,
-    targetType: 'PROMPT',
-    providerId: form.providerId,
-    model: form.model.trim() || undefined,
-    systemPrompt: form.systemPrompt.trim() || undefined,
-    userPromptTemplate: form.userPromptTemplate.trim() || '{{question}}',
+    targetType: form.targetType,
+    providerId: form.targetType === 'PROMPT' ? form.providerId : null,
+    httpTargetId: form.targetType === 'HTTP' ? form.httpTargetId : null,
+    model: form.targetType === 'PROMPT' ? form.model.trim() || undefined : undefined,
+    systemPrompt: form.targetType === 'PROMPT' ? form.systemPrompt.trim() || undefined : undefined,
+    userPromptTemplate:
+      form.targetType === 'PROMPT' ? form.userPromptTemplate.trim() || '{{question}}' : undefined,
     concurrency: form.concurrency,
     maxAttempts: form.maxAttempts,
     requestTimeoutMs: form.requestTimeoutMs,
@@ -476,9 +496,10 @@ onBeforeUnmount(() => {
                 <span class="table-row-link-text">{{ run.name }}</span>
               </router-link>
               <div class="table-subtext mono">
+                <span class="micro-badge" style="margin-right: 6px">{{ run.targetType }}</span>
                 {{ run.datasetNameSnapshot }} v{{ run.datasetVersionNo }} · {{ run.providerNameSnapshot }} / {{ run.modelSnapshot }}
               </div>
-              <div v-if="run.budgetExceeded || run.interruptedAttemptCount > 0 || run.rateLimitDegraded" class="flag-row">
+              <div v-if="run.budgetExceeded || run.interruptedAttemptCount > 0 || run.rateLimitDegraded || run.traceIncomplete" class="flag-row">
                 <span v-if="run.budgetExceeded" class="status-tag status-tag--warning">
                   <TdIcon name="alert-triangle" :size="11" />
                   <span>预算熔断</span>
@@ -486,6 +507,10 @@ onBeforeUnmount(() => {
                 <span v-if="run.interruptedAttemptCount > 0" class="status-tag status-tag--warning">
                   <TdIcon name="refresh" :size="11" />
                   <span>中断恢复 ×{{ run.interruptedAttemptCount }}</span>
+                </span>
+                <span v-if="run.traceIncomplete" class="status-tag status-tag--warning">
+                  <TdIcon name="layers" :size="11" />
+                  <span>Trace 丢弃 ×{{ run.traceDroppedCount }}</span>
                 </span>
                 <span v-if="run.rateLimitDegraded" class="micro-badge">
                   <span>本地限流降级</span>
@@ -571,6 +596,29 @@ onBeforeUnmount(() => {
       </div>
 
       <el-form label-position="top" @submit.prevent="handleCreate">
+        <el-form-item label="被测目标类型">
+          <div class="seg-control" role="group" aria-label="选择被测目标类型">
+            <button
+              type="button"
+              class="seg-btn"
+              :class="{ 'is-active': form.targetType === 'PROMPT' }"
+              :aria-pressed="form.targetType === 'PROMPT'"
+              @click="form.targetType = 'PROMPT'"
+            >
+              Prompt 目标（模型渠道）
+            </button>
+            <button
+              type="button"
+              class="seg-btn"
+              :class="{ 'is-active': form.targetType === 'HTTP' }"
+              :aria-pressed="form.targetType === 'HTTP'"
+              @click="form.targetType = 'HTTP'"
+            >
+              HTTP 目标（外部接口）
+            </button>
+          </div>
+        </el-form-item>
+
         <div class="form-grid-2">
           <el-form-item label="数据集" required>
             <el-select
@@ -605,7 +653,7 @@ onBeforeUnmount(() => {
           </el-form-item>
         </div>
 
-        <div class="form-grid-2">
+        <div v-if="form.targetType === 'PROMPT'" class="form-grid-2">
           <el-form-item label="模型渠道" required>
             <el-select v-model="form.providerId" placeholder="选择渠道" style="width: 100%">
               <el-option
@@ -622,27 +670,48 @@ onBeforeUnmount(() => {
           </el-form-item>
         </div>
 
+        <el-form-item v-else label="外部 HTTP 接口目标（已启用 SSRF 防护与独立限流桶）" required>
+          <el-select
+            v-model="form.httpTargetId"
+            placeholder="选择外部接口目标"
+            style="width: 100%"
+          >
+            <el-option
+              v-for="t in store.httpTargets"
+              :key="t.id"
+              :label="`${t.name} · ${t.httpMethod} ${t.url}`"
+              :value="t.id"
+            />
+          </el-select>
+          <p v-if="selectedHttpTarget" class="form-hint mono">
+            {{ selectedHttpTarget.httpMethod }} {{ selectedHttpTarget.url }} · JSONPath:
+            {{ selectedHttpTarget.responseJsonPath || '原始响应体' }}
+          </p>
+        </el-form-item>
+
         <el-form-item label="任务名称（可选）">
-          <el-input v-model="form.name" placeholder="留空自动生成：数据集版本 · 模型" />
+          <el-input v-model="form.name" placeholder="留空自动生成：数据集版本 · 目标" />
         </el-form-item>
 
-        <el-form-item label="User Prompt 模板（支持 {{变量名}}，默认 {{question}}）">
-          <el-input
-            v-model="form.userPromptTemplate"
-            type="textarea"
-            :rows="2"
-            placeholder="{{question}}"
-          />
-        </el-form-item>
+        <template v-if="form.targetType === 'PROMPT'">
+          <el-form-item label="User Prompt 模板（支持 {{变量名}}，默认 {{question}}）">
+            <el-input
+              v-model="form.userPromptTemplate"
+              type="textarea"
+              :rows="2"
+              placeholder="{{question}}"
+            />
+          </el-form-item>
 
-        <el-form-item label="System Prompt（可选）">
-          <el-input
-            v-model="form.systemPrompt"
-            type="textarea"
-            :rows="2"
-            placeholder="例如：请简洁准确回答问题"
-          />
-        </el-form-item>
+          <el-form-item label="System Prompt（可选）">
+            <el-input
+              v-model="form.systemPrompt"
+              type="textarea"
+              :rows="2"
+              placeholder="例如：请简洁准确回答问题"
+            />
+          </el-form-item>
+        </template>
 
         <div class="advanced-toggle">
           <button

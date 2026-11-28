@@ -32,7 +32,8 @@ export interface EvalRunSummary {
   datasetNameSnapshot: string
   datasetVersionNo: number
   targetType: string
-  providerId: number
+  providerId: number | null
+  httpTargetId: number | null
   providerNameSnapshot: string
   modelSnapshot: string
   concurrency: number
@@ -51,6 +52,8 @@ export interface EvalRunSummary {
   interruptedAttemptCount: number
   rateLimitDegraded: boolean
   cancelRequested: boolean
+  traceIncomplete: boolean
+  traceDroppedCount: number
   createdAt: string
   startedAt: string | null
   finishedAt: string | null
@@ -75,6 +78,7 @@ export interface EvalResultItem {
   runId: number
   caseKey: string
   caseHash: string
+  traceId: string | null
   status: EvalResultStatus
   scoreConclusion: string
   attemptCount: number
@@ -113,8 +117,9 @@ export interface CreateEvalRunPayload {
   name?: string
   datasetId: number
   datasetVersionNo: number
-  targetType?: 'PROMPT'
-  providerId: number
+  targetType?: 'PROMPT' | 'HTTP'
+  providerId?: number | null
+  httpTargetId?: number | null
   model?: string
   systemPrompt?: string
   userPromptTemplate?: string

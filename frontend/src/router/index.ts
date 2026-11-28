@@ -5,8 +5,10 @@ import LoginView from '../views/LoginView.vue'
 import DatasetsView from '../views/DatasetsView.vue'
 import DatasetDetailView from '../views/DatasetDetailView.vue'
 import ProvidersView from '../views/ProvidersView.vue'
+import HttpTargetsView from '../views/HttpTargetsView.vue'
 import RunsView from '../views/RunsView.vue'
 import RunDetailView from '../views/RunDetailView.vue'
+import TraceDetailView from '../views/TraceDetailView.vue'
 
 const router = createRouter({
   history: createWebHistory(),
@@ -37,6 +39,11 @@ const router = createRouter({
           component: ProvidersView,
         },
         {
+          path: 'http-targets',
+          name: 'http-targets',
+          component: HttpTargetsView,
+        },
+        {
           path: 'runs',
           name: 'runs',
           component: RunsView,
@@ -45,6 +52,11 @@ const router = createRouter({
           path: 'runs/:id',
           name: 'run-detail',
           component: RunDetailView,
+        },
+        {
+          path: 'traces/:traceId',
+          name: 'trace-detail',
+          component: TraceDetailView,
         },
       ],
     },
