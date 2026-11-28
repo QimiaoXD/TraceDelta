@@ -16,3 +16,19 @@ tracedelta:
     jwt-ttl-minutes: 60
   admin:
     password: test-admin-pass
+  runner:
+    global-max-concurrency: 32
+    default-concurrency: 8
+    default-max-attempts: 3
+    default-request-timeout-ms: 10000
+    default-rate-limit-per-sec: 1000.0
+    default-rate-limit-burst: 1000
+    default-retry-base-delay-ms: 20
+    default-retry-max-delay-ms: 100
+    redis-rate-limit-enabled: false
+    recovery-on-startup: false
+
+management:
+  health:
+    redis:
+      enabled: false

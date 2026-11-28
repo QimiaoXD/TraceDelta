@@ -1,0 +1,73 @@
+package io.tracedelta.runner;
+
+import java.math.BigDecimal;
+import java.time.LocalDateTime;
+
+public record EvalRunSummaryView(
+        Long id,
+        String name,
+        String runType,
+        String status,
+        String statusReason,
+        Long datasetId,
+        String datasetNameSnapshot,
+        Integer datasetVersionNo,
+        String targetType,
+        Long providerId,
+        String providerNameSnapshot,
+        String modelSnapshot,
+        Integer concurrency,
+        Integer totalCases,
+        Integer completedCases,
+        Integer succeededCases,
+        Integer failedCases,
+        Integer skippedCases,
+        Long totalInputTokens,
+        Long totalOutputTokens,
+        BigDecimal totalCostUsd,
+        Long avgLatencyMs,
+        Long p95LatencyMs,
+        Boolean budgetExceeded,
+        String budgetExceededReason,
+        Integer interruptedAttemptCount,
+        Boolean rateLimitDegraded,
+        Boolean cancelRequested,
+        LocalDateTime createdAt,
+        LocalDateTime startedAt,
+        LocalDateTime finishedAt) {
+
+    public static EvalRunSummaryView fromEntity(EvalRunEntity e) {
+        return new EvalRunSummaryView(
+                e.getId(),
+                e.getName(),
+                e.getRunType(),
+                e.getStatus(),
+                e.getStatusReason(),
+                e.getDatasetId(),
+                e.getDatasetNameSnapshot(),
+                e.getDatasetVersionNo(),
+                e.getTargetType(),
+                e.getProviderId(),
+                e.getProviderNameSnapshot(),
+                e.getModelSnapshot(),
+                e.getConcurrency(),
+                e.getTotalCases(),
+                e.getCompletedCases(),
+                e.getSucceededCases(),
+                e.getFailedCases(),
+                e.getSkippedCases(),
+                e.getTotalInputTokens(),
+                e.getTotalOutputTokens(),
+                e.getTotalCostUsd(),
+                e.getAvgLatencyMs(),
+                e.getP95LatencyMs(),
+                e.getBudgetExceeded(),
+                e.getBudgetExceededReason(),
+                e.getInterruptedAttemptCount(),
+                e.getRateLimitDegraded(),
+                e.getCancelRequested(),
+                e.getCreatedAt(),
+                e.getStartedAt(),
+                e.getFinishedAt());
+    }
+}

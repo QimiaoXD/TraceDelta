@@ -9,6 +9,7 @@ import {
   type DatasetVersionItem,
 } from '../api/dataset'
 import { listProvidersApi, type ProviderView } from '../api/provider'
+import { listRunsApi, type EvalRunSummary } from '../api/run'
 
 export const useConsoleDataStore = defineStore('consoleData', () => {
   const datasets = ref<DatasetItem[]>([])
@@ -16,6 +17,10 @@ export const useConsoleDataStore = defineStore('consoleData', () => {
 
   const providers = ref<ProviderView[]>([])
   const providersLoaded = ref(false)
+
+  const runs = ref<EvalRunSummary[]>([])
+  const runsLoaded = ref(false)
+  const runNameById = ref<Record<number, string>>({})
 
   const versionsByDataset = ref<Record<number, DatasetVersionItem[]>>({})
   const versionFetchFailed = ref<Record<number, boolean>>({})
@@ -33,6 +38,33 @@ export const useConsoleDataStore = defineStore('consoleData', () => {
     providers.value = data
     providersLoaded.value = true
     return data
+  }
+
+  async function fetchRuns(): Promise<EvalRunSummary[]> {
+    const data = await listRunsApi()
+    runs.value = data
+    runsLoaded.value = true
+    const nextNames = { ...runNameById.value }
+    for (const r of data) {
+      nextNames[r.id] = r.name
+    }
+    runNameById.value = nextNames
+    return data
+  }
+
+  function rememberRunName(id: number, name: string) {
+    runNameById.value = { ...runNameById.value, [id]: name }
+  }
+
+  function getCachedRunName(id: number): string | undefined {
+    return runNameById.value[id]
+  }
+
+  function removeRunCache(id: number) {
+    runs.value = runs.value.filter((r) => r.id !== id)
+    const nextNames = { ...runNameById.value }
+    delete nextNames[id]
+    runNameById.value = nextNames
   }
 
   async function fetchVersions(datasetId: number): Promise<DatasetVersionItem[]> {
@@ -102,6 +134,9 @@ export const useConsoleDataStore = defineStore('consoleData', () => {
     datasetsLoaded.value = false
     providers.value = []
     providersLoaded.value = false
+    runs.value = []
+    runsLoaded.value = false
+    runNameById.value = {}
     versionsByDataset.value = {}
     versionFetchFailed.value = {}
     casesByVersionKey.value = {}
@@ -112,8 +147,14 @@ export const useConsoleDataStore = defineStore('consoleData', () => {
     datasetsLoaded,
     providers,
     providersLoaded,
+    runs,
+    runsLoaded,
     fetchDatasets,
     fetchProviders,
+    fetchRuns,
+    rememberRunName,
+    getCachedRunName,
+    removeRunCache,
     fetchVersions,
     prefetchVersionSummaries,
     fetchCases,

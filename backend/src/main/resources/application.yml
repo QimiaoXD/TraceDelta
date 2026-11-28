@@ -12,6 +12,11 @@ spring:
     username: ${TRACEDELTA_DB_USER}
     password: ${TRACEDELTA_DB_PASSWORD}
     driver-class-name: com.mysql.cj.jdbc.Driver
+  data:
+    redis:
+      host: ${TRACEDELTA_REDIS_HOST:127.0.0.1}
+      port: ${TRACEDELTA_REDIS_PORT:6379}
+      timeout: 500ms
   flyway:
     enabled: true
     locations: classpath:db/migration
@@ -27,3 +32,14 @@ tracedelta:
     jwt-ttl-minutes: 720
   admin:
     password: ${TRACEDELTA_ADMIN_PASSWORD}
+  runner:
+    global-max-concurrency: 64
+    default-concurrency: 8
+    default-max-attempts: 3
+    default-request-timeout-ms: 30000
+    default-rate-limit-per-sec: 20.0
+    default-rate-limit-burst: 20
+    default-retry-base-delay-ms: 250
+    default-retry-max-delay-ms: 4000
+    redis-rate-limit-enabled: true
+    recovery-on-startup: true
