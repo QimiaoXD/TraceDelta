@@ -16,6 +16,7 @@ public class EvalResultEntity {
     private String caseKey;
     private String caseHash;
     private String caseSnapshotJson;
+    private String traceId;
     private String status;
     private String scoreConclusion;
     private Integer attemptCount;
@@ -46,6 +47,8 @@ public class EvalResultEntity {
     public void setCaseHash(String caseHash) { this.caseHash = caseHash; }
     public String getCaseSnapshotJson() { return caseSnapshotJson; }
     public void setCaseSnapshotJson(String caseSnapshotJson) { this.caseSnapshotJson = caseSnapshotJson; }
+    public String getTraceId() { return traceId; }
+    public void setTraceId(String traceId) { this.traceId = traceId; }
     public String getStatus() { return status; }
     public void setStatus(String status) { this.status = status; }
     public String getScoreConclusion() { return scoreConclusion; }

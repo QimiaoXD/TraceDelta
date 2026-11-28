@@ -21,6 +21,7 @@ public class EvalRunEntity {
     private Integer datasetVersionNo;
     private String targetType;
     private Long providerId;
+    private Long httpTargetId;
     private String providerNameSnapshot;
     private String modelSnapshot;
     private String targetConfigSnapshotJson;
@@ -48,6 +49,8 @@ public class EvalRunEntity {
     private Integer interruptedAttemptCount;
     private Boolean rateLimitDegraded;
     private Boolean cancelRequested;
+    private Boolean traceIncomplete;
+    private Integer traceDroppedCount;
     private LocalDateTime createdAt;
     private LocalDateTime startedAt;
     private LocalDateTime finishedAt;
@@ -75,6 +78,8 @@ public class EvalRunEntity {
     public void setTargetType(String targetType) { this.targetType = targetType; }
     public Long getProviderId() { return providerId; }
     public void setProviderId(Long providerId) { this.providerId = providerId; }
+    public Long getHttpTargetId() { return httpTargetId; }
+    public void setHttpTargetId(Long httpTargetId) { this.httpTargetId = httpTargetId; }
     public String getProviderNameSnapshot() { return providerNameSnapshot; }
     public void setProviderNameSnapshot(String providerNameSnapshot) { this.providerNameSnapshot = providerNameSnapshot; }
     public String getModelSnapshot() { return modelSnapshot; }
@@ -129,6 +134,10 @@ public class EvalRunEntity {
     public void setRateLimitDegraded(Boolean rateLimitDegraded) { this.rateLimitDegraded = rateLimitDegraded; }
     public Boolean getCancelRequested() { return cancelRequested; }
     public void setCancelRequested(Boolean cancelRequested) { this.cancelRequested = cancelRequested; }
+    public Boolean getTraceIncomplete() { return traceIncomplete; }
+    public void setTraceIncomplete(Boolean traceIncomplete) { this.traceIncomplete = traceIncomplete; }
+    public Integer getTraceDroppedCount() { return traceDroppedCount; }
+    public void setTraceDroppedCount(Integer traceDroppedCount) { this.traceDroppedCount = traceDroppedCount; }
     public LocalDateTime getCreatedAt() { return createdAt; }
     public void setCreatedAt(LocalDateTime createdAt) { this.createdAt = createdAt; }
     public LocalDateTime getStartedAt() { return startedAt; }

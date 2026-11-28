@@ -25,4 +25,16 @@ public interface EvalRunMapper extends BaseMapper<EvalRunEntity> {
             WHERE id = #{id} AND status IN ('PENDING', 'RUNNING')
             """)
     int markCancelRequested(@Param("id") Long id, @Param("now") LocalDateTime now);
+
+    @Update("""
+            UPDATE eval_run
+            SET trace_incomplete = TRUE,
+                trace_dropped_count = trace_dropped_count + #{delta},
+                updated_at = #{now}
+            WHERE id = #{runId}
+            """)
+    int incrementTraceDropped(
+            @Param("runId") Long runId,
+            @Param("delta") int delta,
+            @Param("now") LocalDateTime now);
 }

@@ -30,6 +30,15 @@ tracedelta:
     master-key: ${TRACEDELTA_MASTER_KEY}
     jwt-secret: ${TRACEDELTA_JWT_SECRET}
     jwt-ttl-minutes: 720
+    ssrf:
+      block-private-addresses: true
+      allowed-hosts: ${TRACEDELTA_SSRF_ALLOWED_HOSTS:}
+  trace:
+    queue-capacity: 4096
+    batch-size: 100
+    flush-interval-ms: 500
+    sync-fallback-on-full: true
+    max-payload-chars: 32768
   admin:
     password: ${TRACEDELTA_ADMIN_PASSWORD}
   runner:

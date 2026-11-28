@@ -5,5 +5,6 @@ public enum LlmErrorType {
     RATE_LIMITED,
     TIMEOUT,
     HTTP_ERROR,
-    MALFORMED_RESPONSE
+    MALFORMED_RESPONSE,
+    SSRF_BLOCKED
 }
