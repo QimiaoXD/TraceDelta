@@ -7,7 +7,7 @@
 
 ## 2. 接续必读（按顺序）
 1. 唯一权威设计文档：`docs/superpowers/specs/2026-11-26-tracedelta-design.md`
-2. 当前里程碑实现计划：`docs/superpowers/plans/` 下最新计划（当前为 `2026-11-26-m1-foundation-dataset-mock.md`，查看 `- [x]` / `- [ ]` 进度）
+2. 当前里程碑实现计划：`docs/superpowers/plans/` 下最新计划（M1 `2026-11-26-m1-foundation-dataset-mock.md` 与 M2 `2026-11-27-m2-eval-engine.md` 已完成并合入 `main`，下一里程碑为 M3：OTel Trace/Span 有界异步写入 + HttpTarget SSRF 防护）
 3. 最近提交记录：`git log -n 10 --oneline` 与当前分支 `git branch`
 
 ## 3. 本机环境约定（macOS Apple Silicon）
